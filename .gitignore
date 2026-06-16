@@ -1,0 +1,11 @@
+data/*
+hpc_outputs/*
+grahspj/*
+*.pyc
+__pycache__/
+*.log
+*.out
+*.err
+*.tmp
+*.bak
+*.swp
