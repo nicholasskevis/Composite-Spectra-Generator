@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib
 import json
 import traceback
 from pathlib import Path
@@ -9,8 +10,27 @@ from typing import Any
 
 import numpy as np
 
-from jaxsedfit.benchmark import CHIMERA_FILTER_NAMES, build_chimera_fit_config
-from jaxsedfit.core import JAXSEDFit
+BACKEND_ALIASES = {
+    "jaxsed": "grahspj",
+    "jaxsedfit": "grahspj",
+    "grahspj": "grahspj",
+}
+
+
+def _normalize_backend(value: str) -> str:
+    try:
+        return BACKEND_ALIASES[value.strip().lower()]
+    except KeyError as exc:
+        choices = ", ".join(sorted(BACKEND_ALIASES))
+        raise ValueError(f"Unsupported backend {value!r}; choose one of: {choices}") from exc
+
+
+def _load_backend(backend: str) -> tuple[list[str], Any, type]:
+    backend = _normalize_backend(backend)
+    benchmark = importlib.import_module(f"{backend}.benchmark")
+    core = importlib.import_module(f"{backend}.core")
+    fitter_cls = getattr(core, "GRAHSPJ", None) or getattr(core, "JAXSEDFit")
+    return list(benchmark.CHIMERA_FILTER_NAMES), benchmark.build_chimera_fit_config, fitter_cls
 
 
 def _json_sanitize(value: Any) -> Any:
@@ -43,7 +63,9 @@ def _load_manifest(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(fh))
 
 
-def _row_from_manifest(raw: dict[str, str]) -> dict[str, Any]:
+def _row_from_manifest(raw: dict[str, str], filter_names: list[str] | tuple[str, ...] | None = None) -> dict[str, Any]:
+    if filter_names is None:
+        filter_names, _, _ = _load_backend("jaxsedfit")
     row: dict[str, Any] = {
         "id": raw["object_id"],
         "ID_COSMOS": raw["COSMOS_ID0"],
@@ -57,7 +79,7 @@ def _row_from_manifest(raw: dict[str, str]) -> dict[str, Any]:
         "luminosity_bin": raw.get("luminosity_bin", ""),
         "fit_index": int(raw["fit_index"]),
     }
-    for name in CHIMERA_FILTER_NAMES:
+    for name in filter_names:
         row[name] = float(raw[name])
         row[f"{name}_err"] = float(raw[f"{name}_err"])
     return row
@@ -89,9 +111,10 @@ def _run_fit(
     corner_pdf_path: Path,
     trace_pdf_path: Path,
 ) -> dict[str, Any]:
+    _, build_chimera_fit_config, fitter_cls = _load_backend(args.backend)
     cfg = build_chimera_fit_config(row, dsps_ssp_fn=str(args.dsps_ssp_fn))
     cfg.inference.seed = int(args.seed_base + row["fit_index"])
-    fitter = GRAHSPJ(cfg)
+    fitter = fitter_cls(cfg)
     fit_result = fitter.fit(
         fit_method=args.sampler,
         prior_config=cfg.prior_config,
@@ -145,6 +168,7 @@ def _run_fit(
         "trace_pdf_path": str(trace_pdf_path),
         "fit_summary": fit_result.get("summary", {}),
         "sampler": args.sampler,
+        "backend": _normalize_backend(args.backend),
         "optax_steps": int(args.optax_steps),
         "optax_lr": float(args.optax_lr),
         "nuts_warmup": int(args.nuts_warmup),
@@ -189,13 +213,19 @@ def _run_fit(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run one GRAHSPJ fit from a precomputed manifest row.")
+    parser = argparse.ArgumentParser(description="Run one jaxsedfit/grahspj fit from a precomputed manifest row.")
     parser.add_argument("--manifest", type=Path, default=Path("hpc_outputs/loglbol_mass_retrieval/fit_manifest.csv"))
     parser.add_argument("--output-dir", type=Path, default=Path("hpc_outputs/loglbol_mass_retrieval"))
     parser.add_argument("--dsps-ssp-fn", type=Path, default=Path("tempdata.h5"))
     parser.add_argument("--object-id", required=True)
     parser.add_argument("--expected-count", type=int, default=13558)
     parser.add_argument("--seed-base", type=int, default=20231011)
+    parser.add_argument(
+        "--backend",
+        choices=tuple(sorted(BACKEND_ALIASES)),
+        default="jaxsedfit",
+        help="GRAHSPJ/JAXSEDFit backend name; jaxsed and jaxsedfit are accepted aliases.",
+    )
     parser.add_argument("--sampler", choices=("optax", "nuts", "optax+nuts", "ns"), default="optax+nuts")
     parser.add_argument("--optax-steps", type=int, default=300)
     parser.add_argument("--optax-lr", type=float, default=1.0e-2)
@@ -220,9 +250,11 @@ def main(argv: list[str] | None = None) -> int:
     args.manifest = args.manifest.expanduser().resolve()
     args.output_dir = args.output_dir.expanduser().resolve()
     args.dsps_ssp_fn = args.dsps_ssp_fn.expanduser().resolve()
+    args.backend = _normalize_backend(args.backend)
 
+    filter_names, _, _ = _load_backend(args.backend)
     raw = _select_manifest_entry(args)
-    row = _row_from_manifest(raw)
+    row = _row_from_manifest(raw, filter_names)
     stem = f"{row['fit_index']:05d}_COSMOS{_safe_id(str(row['COSMOS_ID0']))}_{_safe_id(str(row['id']))}"
     success_path = args.output_dir / "results" / f"{stem}.json"
     failure_path = args.output_dir / "failures" / f"{stem}.json"
@@ -232,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"[manifest-fit] fit_index={row['fit_index']} COSMOS_ID0={row['COSMOS_ID0']} "
-        f"object_id={row['id']}",
+        f"object_id={row['id']} backend={args.backend}",
         flush=True,
     )
 
@@ -258,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
             "logLbol_QSO": float(row["logLbol_QSO"]),
             "logLbol_chimera": float(row["logLbol_chimera"]),
             "luminosity_bin": str(row["luminosity_bin"]),
+            "backend": _normalize_backend(args.backend),
             "error": f"{type(exc).__name__}: {exc}",
             "traceback": traceback.format_exc(),
         }

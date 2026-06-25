@@ -34,20 +34,23 @@ def run_manifest_fit(monkeypatch):
     numpy.asarray = _asarray
     numpy.percentile = _percentile
 
-    benchmark = types.ModuleType("grahspj.benchmark")
-    benchmark.CHIMERA_FILTER_NAMES = []
-    benchmark.build_chimera_fit_config = lambda *args, **kwargs: None
+    for package_name in ("jaxsedfit", "grahspj"):
+        benchmark = types.ModuleType(f"{package_name}.benchmark")
+        benchmark.CHIMERA_FILTER_NAMES = []
+        benchmark.build_chimera_fit_config = lambda *args, **kwargs: None
 
-    core = types.ModuleType("grahspj.core")
-    core.GRAHSPJ = object
+        core = types.ModuleType(f"{package_name}.core")
+        core.JAXSEDFit = object
+        if package_name == "grahspj":
+            core.GRAHSPJ = object
 
-    package = types.ModuleType("grahspj")
-    package.__path__ = []
+        package = types.ModuleType(package_name)
+        package.__path__ = []
+        monkeypatch.setitem(sys.modules, package_name, package)
+        monkeypatch.setitem(sys.modules, f"{package_name}.benchmark", benchmark)
+        monkeypatch.setitem(sys.modules, f"{package_name}.core", core)
 
     monkeypatch.setitem(sys.modules, "numpy", numpy)
-    monkeypatch.setitem(sys.modules, "grahspj", package)
-    monkeypatch.setitem(sys.modules, "grahspj.benchmark", benchmark)
-    monkeypatch.setitem(sys.modules, "grahspj.core", core)
     sys.modules.pop("run_manifest_fit", None)
     module = importlib.import_module("run_manifest_fit")
     yield module
@@ -87,6 +90,7 @@ def _fit_args(tmp_path):
         ns_efficiency_threshold=None,
         target_accept_prob=0.85,
         progress_bar=False,
+        backend="jaxsedfit",
     )
 
 
@@ -160,8 +164,6 @@ def test_run_fit_saves_sed_pdf_and_records_path(run_manifest_fit, tmp_path, monk
         prior_config={"log_stellar_mass": {"loc": 10.0}},
         galaxy=types.SimpleNamespace(dsps_ssp_fn=str(tmp_path / "ssp.h5")),
     )
-    monkeypatch.setattr(run_manifest_fit, "build_chimera_fit_config", lambda row, dsps_ssp_fn: cfg)
-
     class _FakeFitter:
         def __init__(self, config):
             self.config = config
@@ -179,7 +181,11 @@ def test_run_fit_saves_sed_pdf_and_records_path(run_manifest_fit, tmp_path, monk
             captured["trace"] = kwargs
             return None
 
-    monkeypatch.setattr(run_manifest_fit, "GRAHSPJ", _FakeFitter)
+    monkeypatch.setattr(
+        run_manifest_fit,
+        "_load_backend",
+        lambda backend: ([], lambda row, dsps_ssp_fn: cfg, _FakeFitter),
+    )
 
     row = {
         "fit_index": 7,
@@ -225,8 +231,6 @@ def test_run_fit_passes_nested_sampler_options(run_manifest_fit, tmp_path, monke
         prior_config={"log_stellar_mass": {"loc": 10.0}},
         galaxy=types.SimpleNamespace(dsps_ssp_fn=str(tmp_path / "ssp.h5")),
     )
-    monkeypatch.setattr(run_manifest_fit, "build_chimera_fit_config", lambda row, dsps_ssp_fn: cfg)
-
     class _FakeFitter:
         def __init__(self, config):
             self.config = config
@@ -242,7 +246,11 @@ def test_run_fit_passes_nested_sampler_options(run_manifest_fit, tmp_path, monke
         def plot_trace(self, **kwargs):
             return None
 
-    monkeypatch.setattr(run_manifest_fit, "GRAHSPJ", _FakeFitter)
+    monkeypatch.setattr(
+        run_manifest_fit,
+        "_load_backend",
+        lambda backend: ([], lambda row, dsps_ssp_fn: cfg, _FakeFitter),
+    )
 
     args = _fit_args(tmp_path)
     args.sampler = "ns"
