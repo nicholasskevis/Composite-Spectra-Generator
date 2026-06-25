@@ -36,6 +36,10 @@ def test_batch_script_creates_sed_pdf_directory():
         task_file=Path("/project/hpc_outputs/loglbol_mass_retrieval/june10_1513_nicholas/slurm_tasks/object_ids.txt"),
         expected_count=13558,
         conda_env="nicholas",
+        backend="jaxsedfit",
+        grahsp_runner=Path("/project/../grahspj/hpc/run_grahsp_manifest_fit.py"),
+        grahsp_sampler_script=Path("/project/../sampler/dualsampler.py"),
+        grahsp_cigale_root=Path("/project/../cigale"),
     )
 
     assert '"${OUTPUT_DIR}/sed_pdfs"' in script
@@ -58,8 +62,14 @@ def test_batch_script_uses_sampler_and_conditional_nested_sampler_args():
         task_file=Path("/project/hpc_outputs/loglbol_mass_retrieval/june10_1513_nicholas/slurm_tasks/object_ids.txt"),
         expected_count=13558,
         conda_env="nicholas",
+        backend="grahspj",
+        grahsp_runner=Path("/project/../grahspj/hpc/run_grahsp_manifest_fit.py"),
+        grahsp_sampler_script=Path("/project/../sampler/dualsampler.py"),
+        grahsp_cigale_root=Path("/project/../cigale"),
     )
 
+    assert "BACKEND=grahspj" in script
+    assert "--backend grahspj" in script
     assert 'SAMPLER="${SAMPLER:-optax+nuts}"' in script
     assert '--sampler "${SAMPLER}"' in script
     assert "--fit-method" not in script
@@ -83,3 +93,32 @@ def test_batch_script_uses_sampler_and_conditional_nested_sampler_args():
     assert 'if [ -n "${NS_EFFICIENCY_THRESHOLD:-}" ]; then' in script
     assert 'NS_ARGS+=(--ns-efficiency-threshold "${NS_EFFICIENCY_THRESHOLD}")' in script
     assert '"${NS_ARGS[@]}"' in script
+
+
+def test_batch_script_routes_grahsp_to_grahsp_runner():
+    script = _batch_script(
+        job_name="june10_1513_nicholas-00000-09999",
+        array="0-9999",
+        partition="day_amd",
+        time_limit="02:00:00",
+        cpus_per_task=1,
+        mem_per_cpu="8g",
+        project_root=Path("/project"),
+        output_dir=Path("/project/hpc_outputs/loglbol_mass_retrieval/june10_1513_nicholas"),
+        manifest=Path("/project/fit_manifest.csv"),
+        dsps_ssp_fn=Path("/project/tempdata.h5"),
+        task_file=Path("/project/hpc_outputs/loglbol_mass_retrieval/june10_1513_nicholas/slurm_tasks/tasks.txt"),
+        expected_count=13558,
+        conda_env="nicholas",
+        backend="grahsp",
+        grahsp_runner=Path("/project/../grahspj/hpc/run_grahsp_manifest_fit.py"),
+        grahsp_sampler_script=Path("/project/../sampler/dualsampler.py"),
+        grahsp_cigale_root=Path("/project/../cigale"),
+    )
+
+    assert "BACKEND=grahsp" in script
+    assert 'case "${BACKEND}" in' in script
+    assert 'python "${GRAHSP_RUNNER}"' in script
+    assert '--fit-index "${FIT_INDEX}"' in script
+    assert '--sampler-script "${GRAHSP_SAMPLER_SCRIPT}"' in script
+    assert '--backend grahspj' in script
