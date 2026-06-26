@@ -1,0 +1,16 @@
+{
+  "bin_counts": {
+    "42 < L < 43": 3390,
+    "43 < L < 44": 4755,
+    "44 < L < 45": 4248,
+    "L < 42": 1165
+  },
+  "data_dir": "/home/nicho/GRAHSP/grahspj/data/chimeras-2023-10-11",
+  "first_fit_index": 0,
+  "last_fit_index": 13557,
+  "manifest": "/home/nicho/GRAHSP/My-AGN-research-repository/fit_manifest.csv",
+  "n_fit_rows": 13558,
+  "n_repeated_COSMOS_ID0": 1175,
+  "n_unique_COSMOS_ID0": 1639,
+  "provenance": "/home/nicho/GRAHSP/My-AGN-research-repository/chimera_provenance.csv"
+}

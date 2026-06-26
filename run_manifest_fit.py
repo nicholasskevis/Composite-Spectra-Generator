@@ -16,6 +16,21 @@ BACKEND_ALIASES = {
     "grahspj": "grahspj",
 }
 
+SFR_SAMPLE_KEYS = (
+    "log_sfr",
+    "log_SFR",
+    "log10_sfr",
+    "log10_SFR",
+    "sfr",
+    "SFR",
+    "sfh_sfr",
+    "sfh.sfr",
+    "sfr100Myrs",
+    "sfh.sfr100Myrs",
+    "sfr_100myr",
+    "sfr100",
+)
+
 
 def _normalize_backend(value: str) -> str:
     try:
@@ -56,6 +71,59 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def _safe_id(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in "._+-" else "_" for ch in value)
+
+
+def _sample_percentiles(samples: Any) -> tuple[float, float, float]:
+    values = np.asarray(samples, dtype=float).reshape(-1)
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return float("nan"), float("nan"), float("nan")
+    p16, p50, p84 = np.percentile(values, [16.0, 50.0, 84.0])
+    return float(p16), float(p50), float(p84)
+
+
+def _extract_sfr_summary(samples: dict[str, Any]) -> dict[str, Any]:
+    if not hasattr(np, "isfinite"):
+        return {"sfr_sample_key": None}
+
+    for key in SFR_SAMPLE_KEYS:
+        if key not in samples:
+            continue
+
+        p16, p50, p84 = _sample_percentiles(samples[key])
+        out: dict[str, Any] = {"sfr_sample_key": key}
+        key_lower = key.lower()
+        if key_lower.startswith("log"):
+            out.update(
+                {
+                    "log_sfr16": p16,
+                    "log_sfr": p50,
+                    "log_sfr84": p84,
+                    "sfr16": float(10.0**p16) if np.isfinite(p16) else float("nan"),
+                    "sfr": float(10.0**p50) if np.isfinite(p50) else float("nan"),
+                    "sfr84": float(10.0**p84) if np.isfinite(p84) else float("nan"),
+                }
+            )
+        else:
+            values = np.asarray(samples[key], dtype=float).reshape(-1)
+            positive = values[np.isfinite(values) & (values > 0.0)]
+            if positive.size:
+                log16, log50, log84 = np.percentile(np.log10(positive), [16.0, 50.0, 84.0])
+            else:
+                log16 = log50 = log84 = float("nan")
+            out.update(
+                {
+                    "sfr16": p16,
+                    "sfr": p50,
+                    "sfr84": p84,
+                    "log_sfr16": float(log16),
+                    "log_sfr": float(log50),
+                    "log_sfr84": float(log84),
+                }
+            )
+        return out
+
+    return {"sfr_sample_key": None}
 
 
 def _load_manifest(path: Path) -> list[dict[str, str]]:
@@ -146,6 +214,7 @@ def _run_fit(
     logm_samples = np.asarray(fitter.samples["log_stellar_mass"], dtype=float).reshape(-1)
     logm16, recovered_logm, logm84 = np.percentile(logm_samples, [16.0, 50.0, 84.0])
     truth_logm = float(row["log_stellar_mass_truth"])
+    sfr_summary = _extract_sfr_summary(fitter.samples)
     payload = {
         "status": "success",
         "fit_index": int(row["fit_index"]),
@@ -163,6 +232,7 @@ def _run_fit(
         "logm16": float(logm16),
         "logm84": float(logm84),
         "residual_log_ratio": float(recovered_logm - truth_logm),
+        **sfr_summary,
         "sed_pdf_path": str(sed_pdf_path),
         "corner_pdf_path": str(corner_pdf_path),
         "trace_pdf_path": str(trace_pdf_path),
