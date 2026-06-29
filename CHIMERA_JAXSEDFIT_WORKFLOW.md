@@ -1,6 +1,6 @@
 # Chimera JAXSEDfit Workflow
 
-This repository now has the files needed to fit Chimera sources with JAXSEDfit/GRAHSPJ using the `run.xsh` framework.
+This repository now has the files needed to fit Chimera sources with JAXSEDfit/GRAHSPJ using the `hpc/run.xsh` framework.
 
 ## 1. Build the manifest
 
@@ -15,13 +15,13 @@ This writes:
 
 By default it reads Chimera data from `../grahspj/data/chimeras-2023-10-11` and keeps the same 13,558 log-luminosity-selected rows used by the previous HPC workflow.
 
-## 2. Run one source through `run.xsh`
+## 2. Run one source through `hpc/run.xsh`
 
 ```bash
-./run.xsh --sampler optax+nuts
+python hpc/run.xsh --sampler optax+nuts
 ```
 
-`run.xsh` intentionally keeps the run settings as constants at the top of the file. It uses:
+`hpc/run.xsh` intentionally keeps the run settings as constants at the top of the file. It uses:
 
 - `MANIFEST = Path("fit_manifest.csv")`
 - `DSPS_SSP_FN = Path("tempdata.h5")`
@@ -30,7 +30,7 @@ By default it reads Chimera data from `../grahspj/data/chimeras-2023-10-11` and 
 - `OUTPUT_ROOT = Path("hpc_outputs/loglbol_mass_retrieval")`
 - `OUTPUT_LABEL = "manual_single_013549"`
 
-Use `--dry-run` to print the underlying `python hpc/run_manifest_fit.py ...` command without fitting. To run a different single source through this fixed launcher, update `OBJECT_ID` and `OUTPUT_LABEL` in `run.xsh`.
+Use `--dry-run` to print the underlying `python hpc/run_manifest_fit.py ...` command without fitting. To run a different single source through this fixed launcher, update `OBJECT_ID` and `OUTPUT_LABEL` in `hpc/run.xsh`.
 
 ## 3. Submit all sources as Slurm chunks
 

@@ -7,16 +7,23 @@ import subprocess
 from pathlib import Path
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _root_path(*parts: str) -> Path:
+    return PROJECT_ROOT.joinpath(*parts)
+
+
 # -----------------------------------------------------------------------------
 # Common fit settings
 # -----------------------------------------------------------------------------
 
-MANIFEST = Path("fit_manifest.csv")
-DSPS_SSP_FN = Path("tempdata.h5")
+MANIFEST = _root_path("fit_manifest.csv")
+DSPS_SSP_FN = _root_path("tempdata.h5")
 OBJECT_ID = "013549.53+241149.7_243632_0.0001"
 EXPECTED_COUNT = 13558
 
-OUTPUT_ROOT = Path("hpc_outputs/loglbol_mass_retrieval")
+OUTPUT_ROOT = _root_path("hpc_outputs", "loglbol_mass_retrieval")
 OUTPUT_LABEL = "manual_single_013549"
 
 OPTAX_STEPS = 300
@@ -60,7 +67,7 @@ def _sampler_output_dir(sampler: str) -> Path:
 def _build_command(sampler: str, output_dir: Path, dry_run: bool, ns_resamples: int) -> list[str]:
     cmd = [
         "python",
-        "hpc/run_manifest_fit.py",
+        str(_root_path("hpc", "run_manifest_fit.py")),
         "--manifest",
         str(MANIFEST),
         "--progress-bar",
