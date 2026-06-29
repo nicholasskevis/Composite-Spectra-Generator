@@ -2,8 +2,8 @@
 
 Run these commands from the repository root. The runtime scripts needed by the Slurm workflow live in this folder:
 
-- `run.xsh` runs one configured single-object fit.
-- `submit_loglbol_slurm_chunks.py` submits chunked Slurm arrays.
+- `run.xsh` is the main entrypoint for one configured object or all-object Slurm submission.
+- `submit_loglbol_slurm_chunks.py` submits chunked Slurm arrays for all manifest rows.
 - `run_manifest_fit.py` runs one jaxsedfit/GRAHSPJ manifest row.
 - `run_grahsp_manifest_fit.py` runs one external GRAHSP manifest row.
 
@@ -17,17 +17,14 @@ Example dry runs:
 
 ```bash
 python hpc/run.xsh --dry-run
-python hpc/submit_loglbol_slurm_chunks.py --backend grahspj --dry-run
-python hpc/submit_loglbol_slurm_chunks.py --backend grahsp --dry-run
+python hpc/run.xsh --all-objects --dry-run
+python hpc/run.xsh --all-objects --backend grahsp --dry-run
 ```
 
 Example submission:
 
 ```bash
-python hpc/submit_loglbol_slurm_chunks.py \
-  --manifest fit_manifest.csv \
-  --backend grahspj \
-  --job-name chimera_jaxsedfit
+python hpc/run.xsh --all-objects --backend grahspj --job-name chimera_jaxsedfit
 ```
 
 For the external GRAHSP backend, the Python environment must include the CIGALE/GRAHSP runtime dependencies, including `configobj`, `sqlalchemy`, `numba`, and `ultranest`.
