@@ -2,6 +2,7 @@
 
 Run these commands from the repository root. The runtime scripts needed by the Slurm workflow live in this folder:
 
+- `run.xsh` runs one configured single-object fit.
 - `submit_loglbol_slurm_chunks.py` submits chunked Slurm arrays.
 - `run_manifest_fit.py` runs one jaxsedfit/GRAHSPJ manifest row.
 - `run_grahsp_manifest_fit.py` runs one external GRAHSP manifest row.
@@ -15,6 +16,7 @@ The submitter expects these repository-root inputs by default:
 Example dry runs:
 
 ```bash
+python hpc/run.xsh --dry-run
 python hpc/submit_loglbol_slurm_chunks.py --backend grahspj --dry-run
 python hpc/submit_loglbol_slurm_chunks.py --backend grahsp --dry-run
 ```
