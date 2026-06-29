@@ -223,7 +223,7 @@ fi
 
 case "${{BACKEND}}" in
   grahspj)
-    python "${{PROJECT_ROOT}}/run_manifest_fit.py" \\
+    python "${{PROJECT_ROOT}}/hpc/run_manifest_fit.py" \\
       --manifest "${{MANIFEST}}" \\
       --output-dir "${{OUTPUT_DIR}}" \\
       --dsps-ssp-fn "${{DSPS_SSP_FN}}" \\
@@ -308,9 +308,9 @@ def main(argv: list[str] | None = None) -> int:
         "--backend",
         choices=("jaxsedfit", "jaxsed", "grahspj", "grahsp"),
         default="grahspj",
-        help="Fit backend: grahspj/jaxsedfit use run_manifest_fit.py; grahsp uses the GRAHSP runner.",
+        help="Fit backend: grahspj/jaxsedfit use hpc/run_manifest_fit.py; grahsp uses hpc/run_grahsp_manifest_fit.py.",
     )
-    parser.add_argument("--grahsp-runner", type=Path, default=Path("../grahspj/hpc/run_grahsp_manifest_fit.py"))
+    parser.add_argument("--grahsp-runner", type=Path, default=Path("hpc/run_grahsp_manifest_fit.py"))
     parser.add_argument("--grahsp-sampler-script", type=Path, default=Path("../sampler/dualsampler.py"))
     parser.add_argument("--grahsp-cigale-root", type=Path, default=Path("../cigale"))
     parser.add_argument("--dry-run", action="store_true", help="Write task files and print sbatch plans without submitting.")
@@ -322,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cpus_per_task < 1:
         raise RuntimeError("--cpus-per-task must be at least 1.")
 
-    project_root = Path.cwd().resolve()
+    project_root = Path(__file__).resolve().parents[1]
     manifest = _resolve_from_root(project_root, args.manifest)
     output_base_dir = _resolve_from_root(project_root, args.output_dir)
     run_name = _run_name(args.job_name)

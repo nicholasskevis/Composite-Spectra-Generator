@@ -51,10 +51,10 @@ def run_manifest_fit(monkeypatch):
         monkeypatch.setitem(sys.modules, f"{package_name}.core", core)
 
     monkeypatch.setitem(sys.modules, "numpy", numpy)
-    sys.modules.pop("run_manifest_fit", None)
-    module = importlib.import_module("run_manifest_fit")
+    sys.modules.pop("hpc.run_manifest_fit", None)
+    module = importlib.import_module("hpc.run_manifest_fit")
     yield module
-    sys.modules.pop("run_manifest_fit", None)
+    sys.modules.pop("hpc.run_manifest_fit", None)
 
 
 def _write_manifest(path, rows):
@@ -155,6 +155,23 @@ def test_select_manifest_entry_rejects_duplicate_object_id(run_manifest_fit, tmp
     with pytest.raises(RuntimeError, match="matched 2 manifest rows"):
         run_manifest_fit._select_manifest_entry(_args(manifest, "obj-a"))
 
+
+def test_patch_backend_config_compat_adds_missing_speclite_names(run_manifest_fit):
+    filters = types.SimpleNamespace(curves=[], use_grahsp_database=False)
+    cfg = types.SimpleNamespace(filters=filters)
+
+    run_manifest_fit._patch_backend_config_compat(cfg)
+
+    assert filters.speclite_names == {}
+
+
+def test_patch_backend_config_compat_preserves_existing_speclite_names(run_manifest_fit):
+    filters = types.SimpleNamespace(speclite_names={"u_sdss": "sdss2010-u"})
+    cfg = types.SimpleNamespace(filters=filters)
+
+    run_manifest_fit._patch_backend_config_compat(cfg)
+
+    assert filters.speclite_names == {"u_sdss": "sdss2010-u"}
 
 def test_run_fit_saves_sed_pdf_and_records_path(run_manifest_fit, tmp_path, monkeypatch):
     captured = {}

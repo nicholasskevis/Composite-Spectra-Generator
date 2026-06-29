@@ -48,6 +48,12 @@ def _load_backend(backend: str) -> tuple[list[str], Any, type]:
     return list(benchmark.CHIMERA_FILTER_NAMES), benchmark.build_chimera_fit_config, fitter_cls
 
 
+def _patch_backend_config_compat(cfg: Any) -> None:
+    filters = getattr(cfg, "filters", None)
+    if filters is not None and not hasattr(filters, "speclite_names"):
+        filters.speclite_names = {}
+
+
 def _json_sanitize(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(k): _json_sanitize(v) for k, v in value.items()}
@@ -181,6 +187,7 @@ def _run_fit(
 ) -> dict[str, Any]:
     _, build_chimera_fit_config, fitter_cls = _load_backend(args.backend)
     cfg = build_chimera_fit_config(row, dsps_ssp_fn=str(args.dsps_ssp_fn))
+    _patch_backend_config_compat(cfg)
     cfg.inference.seed = int(args.seed_base + row["fit_index"])
     fitter = fitter_cls(cfg)
     fit_result = fitter.fit(
