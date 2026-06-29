@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from submit_loglbol_slurm_chunks import _batch_script, _run_name, _safe_run_label
+from hpc.submit_loglbol_slurm_chunks import _batch_script, _run_name, _safe_run_label
 
 
 def test_run_name_uses_month_day_time_and_label():
@@ -37,7 +37,7 @@ def test_batch_script_creates_sed_pdf_directory():
         expected_count=13558,
         conda_env="nicholas",
         backend="jaxsedfit",
-        grahsp_runner=Path("/project/../grahspj/hpc/run_grahsp_manifest_fit.py"),
+        grahsp_runner=Path("/project/hpc/run_grahsp_manifest_fit.py"),
         grahsp_sampler_script=Path("/project/../sampler/dualsampler.py"),
         grahsp_cigale_root=Path("/project/../cigale"),
     )
@@ -63,7 +63,7 @@ def test_batch_script_uses_sampler_and_conditional_nested_sampler_args():
         expected_count=13558,
         conda_env="nicholas",
         backend="grahspj",
-        grahsp_runner=Path("/project/../grahspj/hpc/run_grahsp_manifest_fit.py"),
+        grahsp_runner=Path("/project/hpc/run_grahsp_manifest_fit.py"),
         grahsp_sampler_script=Path("/project/../sampler/dualsampler.py"),
         grahsp_cigale_root=Path("/project/../cigale"),
     )
@@ -111,7 +111,7 @@ def test_batch_script_routes_grahsp_to_grahsp_runner():
         expected_count=13558,
         conda_env="nicholas",
         backend="grahsp",
-        grahsp_runner=Path("/project/../grahspj/hpc/run_grahsp_manifest_fit.py"),
+        grahsp_runner=Path("/project/hpc/run_grahsp_manifest_fit.py"),
         grahsp_sampler_script=Path("/project/../sampler/dualsampler.py"),
         grahsp_cigale_root=Path("/project/../cigale"),
     )

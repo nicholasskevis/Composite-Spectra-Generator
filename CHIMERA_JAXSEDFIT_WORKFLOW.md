@@ -30,12 +30,12 @@ By default it reads Chimera data from `../grahspj/data/chimeras-2023-10-11` and 
 - `OUTPUT_ROOT = Path("hpc_outputs/loglbol_mass_retrieval")`
 - `OUTPUT_LABEL = "manual_single_013549"`
 
-Use `--dry-run` to print the underlying `python run_manifest_fit.py ...` command without fitting. To run a different single source through this fixed launcher, update `OBJECT_ID` and `OUTPUT_LABEL` in `run.xsh`.
+Use `--dry-run` to print the underlying `python hpc/run_manifest_fit.py ...` command without fitting. To run a different single source through this fixed launcher, update `OBJECT_ID` and `OUTPUT_LABEL` in `run.xsh`.
 
 ## 3. Submit all sources as Slurm chunks
 
 ```bash
-python submit_loglbol_slurm_chunks.py \
+python hpc/submit_loglbol_slurm_chunks.py \
   --manifest fit_manifest.csv \
   --backend grahspj \
   --job-name chimera_jaxsedfit

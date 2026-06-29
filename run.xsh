@@ -60,7 +60,7 @@ def _sampler_output_dir(sampler: str) -> Path:
 def _build_command(sampler: str, output_dir: Path, dry_run: bool, ns_resamples: int) -> list[str]:
     cmd = [
         "python",
-        "run_manifest_fit.py",
+        "hpc/run_manifest_fit.py",
         "--manifest",
         str(MANIFEST),
         "--progress-bar",
