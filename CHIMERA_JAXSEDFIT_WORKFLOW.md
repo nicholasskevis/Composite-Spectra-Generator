@@ -35,13 +35,10 @@ Use `--dry-run` to print the underlying `python hpc/run_manifest_fit.py ...` com
 ## 3. Submit all sources as Slurm chunks
 
 ```bash
-python hpc/submit_loglbol_slurm_chunks.py \
-  --manifest fit_manifest.csv \
-  --backend grahspj \
-  --job-name chimera_jaxsedfit
+python hpc/run.xsh --all-objects --backend grahspj --job-name chimera_jaxsedfit
 ```
 
-This creates a timestamped run directory under `hpc_outputs/loglbol_mass_retrieval/`.
+Use `--dry-run` first to write the chunk task files and print the planned Slurm arrays without submitting. This creates a timestamped run directory under `hpc_outputs/loglbol_mass_retrieval/`.
 
 ## 4. Merge results and plot properties
 
