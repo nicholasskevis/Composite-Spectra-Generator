@@ -220,6 +220,14 @@ cosmology = concordance
   attenuation_model_uncertainty = false
   Ly_break_uncertainty = false
 
+[scaling_limits]
+  mass_min = 5
+  mass_max = 15
+  sfr_min = 0
+  sfr_max = 100000
+  L_min = 38
+  L_max = 50
+
 [sed_creation_modules]
   [[sfh2exp]]
     tau_main = 500, 1500, 4000, 8000
