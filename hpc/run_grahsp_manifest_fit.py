@@ -139,8 +139,6 @@ def _select_manifest_entry(args: argparse.Namespace) -> dict[str, str]:
         )
     if args.fit_index is not None and args.array_index is not None:
         raise RuntimeError("Conflicting manifest selectors: use --fit-index or --array-index, not both.")
-    if args.fit_index is not None and scheduler_index is not None:
-        raise RuntimeError(f"Conflicting manifest selectors: --fit-index was supplied but {scheduler_index[0]} is also set.")
     if args.array_index is not None and scheduler_index is not None and int(args.array_index) != int(scheduler_index[1]):
         raise RuntimeError(
             f"Conflicting array selectors: --array-index={args.array_index} but "
