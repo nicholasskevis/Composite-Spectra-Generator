@@ -71,6 +71,8 @@ def test_grahsp_env_loads_compatibility_sitecustomize_first(tmp_path):
     first_pythonpath = env["PYTHONPATH"].split(run_grahsp_manifest_fit.os.pathsep)[0]
 
     assert first_pythonpath.endswith("hpc/grahsp_compat")
+    assert env["PLOT_CORNER"] == "1"
+    assert env["PLOT_TRACE"] == "1"
 
 
 def test_grahsp_command_always_requests_plot_summary(tmp_path):
@@ -86,6 +88,35 @@ def test_grahsp_command_always_requests_plot_summary(tmp_path):
 
     assert "--plot" in cmd
     assert "--mass-max" not in cmd
+
+
+def test_collect_grahsp_artifacts_copies_standard_outputs(tmp_path):
+    work_dir = tmp_path / "work" / "00001_COSMOS10_obj-a"
+    plot_dir = work_dir / "grahsp_obj-a_varV2" / "plots"
+    output_dir = tmp_path / "out"
+    plot_dir.mkdir(parents=True)
+    for name in (
+        "sed_mJy.pdf",
+        "sed_lum.pdf",
+        "corner.pdf",
+        "posteriors.pdf",
+        "derived.pdf",
+        "sed_mJy.csv.gz",
+        "sed_lum.csv.gz",
+        "trace.pdf",
+    ):
+        (plot_dir / name).write_text(name, encoding="utf-8")
+
+    artifacts = run_grahsp_manifest_fit._collect_grahsp_artifacts(work_dir, output_dir, "00001_COSMOS10_obj-a")
+
+    assert artifacts["grahsp_plot_dir"] == str(plot_dir)
+    assert artifacts["sed_pdf_path"] == str(output_dir / "sed_pdfs" / "00001_COSMOS10_obj-a.pdf")
+    assert artifacts["sed_lum_pdf_path"] == str(output_dir / "sed_lum_pdfs" / "00001_COSMOS10_obj-a.pdf")
+    assert artifacts["corner_pdf_path"] == str(output_dir / "corner_pdfs" / "00001_COSMOS10_obj-a.pdf")
+    assert artifacts["trace_pdf_path"] == str(output_dir / "trace_pdfs" / "00001_COSMOS10_obj-a.pdf")
+    assert artifacts["sed_mjy_csv_path"] == str(output_dir / "sed_csvs" / "00001_COSMOS10_obj-a_mJy.csv.gz")
+    assert (output_dir / "sed_pdfs" / "00001_COSMOS10_obj-a.pdf").read_text(encoding="utf-8") == "sed_mJy.pdf"
+    assert str(plot_dir / "sed_lum.pdf") in artifacts["grahsp_artifact_paths"]
 
 
 def test_sitecustomize_accepts_tuple_sfh(monkeypatch):

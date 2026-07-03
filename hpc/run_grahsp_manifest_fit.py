@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import os
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -329,6 +330,8 @@ def _build_grahsp_env(args: argparse.Namespace, work_dir: Path) -> dict[str, str
     env["HDF5_USE_FILE_LOCKING"] = "FALSE"
     env["MPLCONFIGDIR"] = str(work_dir / "mplconfig")
     env["CACHE_MAX"] = str(args.cache_max)
+    env.setdefault("PLOT_CORNER", "1")
+    env.setdefault("PLOT_TRACE", "1")
     (work_dir / "mplconfig").mkdir(parents=True, exist_ok=True)
     return env
 
@@ -348,8 +351,63 @@ def _build_grahsp_command(args: argparse.Namespace) -> list[str]:
     ]
 
 
+def _find_grahsp_plot_dir(work_dir: Path) -> Path | None:
+    candidates = sorted(
+        path for path in work_dir.glob("grahsp_*") if path.is_dir() and (path / "plots").is_dir()
+    )
+    if not candidates:
+        return None
+    return candidates[0] / "plots"
+
+
+def _copy_artifact(src: Path | None, dst: Path) -> str:
+    if src is None or not src.is_file():
+        return ""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    return str(dst)
+
+
+def _collect_grahsp_artifacts(work_dir: Path, output_dir: Path, stem: str) -> dict[str, Any]:
+    plot_dir = _find_grahsp_plot_dir(work_dir)
+    artifacts: dict[str, Any] = {
+        "grahsp_plot_dir": str(plot_dir) if plot_dir is not None else "",
+        "grahsp_artifact_paths": [],
+        "sed_pdf_path": "",
+        "sed_lum_pdf_path": "",
+        "corner_pdf_path": "",
+        "trace_pdf_path": "",
+        "posteriors_pdf_path": "",
+        "derived_pdf_path": "",
+        "sed_mjy_csv_path": "",
+        "sed_lum_csv_path": "",
+    }
+    if plot_dir is None:
+        return artifacts
+
+    for path in sorted(plot_dir.rglob("*")):
+        if path.is_file() and path.suffix.lower() in {".pdf", ".png", ".gz", ".csv"}:
+            artifacts["grahsp_artifact_paths"].append(str(path))
+
+    artifacts["sed_pdf_path"] = _copy_artifact(plot_dir / "sed_mJy.pdf", output_dir / "sed_pdfs" / f"{stem}.pdf")
+    artifacts["sed_lum_pdf_path"] = _copy_artifact(plot_dir / "sed_lum.pdf", output_dir / "sed_lum_pdfs" / f"{stem}.pdf")
+    artifacts["corner_pdf_path"] = _copy_artifact(plot_dir / "corner.pdf", output_dir / "corner_pdfs" / f"{stem}.pdf")
+    artifacts["posteriors_pdf_path"] = _copy_artifact(plot_dir / "posteriors.pdf", output_dir / "posteriors_pdfs" / f"{stem}.pdf")
+    artifacts["derived_pdf_path"] = _copy_artifact(plot_dir / "derived.pdf", output_dir / "derived_pdfs" / f"{stem}.pdf")
+    artifacts["sed_mjy_csv_path"] = _copy_artifact(plot_dir / "sed_mJy.csv.gz", output_dir / "sed_csvs" / f"{stem}_mJy.csv.gz")
+    artifacts["sed_lum_csv_path"] = _copy_artifact(plot_dir / "sed_lum.csv.gz", output_dir / "sed_csvs" / f"{stem}_lum.csv.gz")
+
+    trace_candidates = sorted(plot_dir.rglob("*trace*.pdf"))
+    artifacts["trace_pdf_path"] = _copy_artifact(
+        trace_candidates[0] if trace_candidates else None,
+        output_dir / "trace_pdfs" / f"{stem}.pdf",
+    )
+    return artifacts
+
+
 def _run_grahsp(row: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
-    work_dir = args.output_dir / "work" / f"{int(row['fit_index']):05d}_COSMOS{_safe_id(str(row['COSMOS_ID0']))}_{_safe_id(str(row['id']))}"
+    stem = f"{int(row['fit_index']):05d}_COSMOS{_safe_id(str(row['COSMOS_ID0']))}_{_safe_id(str(row['id']))}"
+    work_dir = args.output_dir / "work" / stem
     work_dir.mkdir(parents=True, exist_ok=True)
     input_path = _write_grahsp_input_table(row, work_dir)
     config_path = _write_pcigale_ini(input_path, work_dir)
@@ -410,6 +468,7 @@ def _run_grahsp(row: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]
         "nuts_chains": "",
         "target_accept_prob": "",
     }
+    payload.update(_collect_grahsp_artifacts(work_dir, args.output_dir, stem))
     for optional_name in (
         "log_stellar_mass_mean",
         "log_stellar_mass_std",

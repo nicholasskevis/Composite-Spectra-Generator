@@ -163,7 +163,7 @@ GRAHSP_RUNNER={shlex.quote(str(grahsp_runner))}
 GRAHSP_SAMPLER_SCRIPT={shlex.quote(str(grahsp_sampler_script))}
 GRAHSP_CIGALE_ROOT={shlex.quote(str(grahsp_cigale_root))}
 
-mkdir -p "${{OUTPUT_DIR}}/logs" "${{OUTPUT_DIR}}/results" "${{OUTPUT_DIR}}/failures" "${{OUTPUT_DIR}}/sed_pdfs" "${{OUTPUT_DIR}}/corner_pdfs" "${{OUTPUT_DIR}}/trace_pdfs"
+mkdir -p "${{OUTPUT_DIR}}/logs" "${{OUTPUT_DIR}}/results" "${{OUTPUT_DIR}}/failures" "${{OUTPUT_DIR}}/sed_pdfs" "${{OUTPUT_DIR}}/sed_lum_pdfs" "${{OUTPUT_DIR}}/corner_pdfs" "${{OUTPUT_DIR}}/trace_pdfs" "${{OUTPUT_DIR}}/posteriors_pdfs" "${{OUTPUT_DIR}}/derived_pdfs" "${{OUTPUT_DIR}}/sed_csvs"
 cd "${{PROJECT_ROOT}}"
 
 module reset
@@ -377,7 +377,19 @@ def main(argv: list[str] | None = None) -> int:
         raise RuntimeError(f"Manifest contains no rows: {manifest}")
 
     task_dir = output_dir / "slurm_tasks"
-    for subdir in ("logs", "results", "failures", "sed_pdfs", "corner_pdfs", "trace_pdfs", "slurm_tasks"):
+    for subdir in (
+        "logs",
+        "results",
+        "failures",
+        "sed_pdfs",
+        "sed_lum_pdfs",
+        "corner_pdfs",
+        "trace_pdfs",
+        "posteriors_pdfs",
+        "derived_pdfs",
+        "sed_csvs",
+        "slurm_tasks",
+    ):
         (output_dir / subdir).mkdir(parents=True, exist_ok=True)
 
     chunks = _chunks(tasks, args.max_array_tasks)
