@@ -317,6 +317,7 @@ cosmology = concordance
 def _build_grahsp_env(args: argparse.Namespace, work_dir: Path) -> dict[str, str]:
     env = os.environ.copy()
     pythonpath_parts = [
+        str(PROJECT_ROOT / "hpc" / "grahsp_compat"),
         str(args.cigale_root),
         str(PROJECT_ROOT / "src"),
         str(REPO_ROOT),
