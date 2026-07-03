@@ -333,13 +333,8 @@ def _build_grahsp_env(args: argparse.Namespace, work_dir: Path) -> dict[str, str
     return env
 
 
-def _run_grahsp(row: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
-    work_dir = args.output_dir / "work" / f"{int(row['fit_index']):05d}_COSMOS{_safe_id(str(row['COSMOS_ID0']))}_{_safe_id(str(row['id']))}"
-    work_dir.mkdir(parents=True, exist_ok=True)
-    input_path = _write_grahsp_input_table(row, work_dir)
-    config_path = _write_pcigale_ini(input_path, work_dir)
-
-    cmd = [
+def _build_grahsp_command(args: argparse.Namespace) -> list[str]:
+    return [
         str(args.python_executable),
         str(args.sampler_script),
         "analyse",
@@ -349,9 +344,17 @@ def _run_grahsp(row: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]
         str(args.num_live_points),
         "--num-posterior-samples",
         str(args.num_posterior_samples),
+        "--plot",
     ]
-    if args.plot:
-        cmd.append("--plot")
+
+
+def _run_grahsp(row: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    work_dir = args.output_dir / "work" / f"{int(row['fit_index']):05d}_COSMOS{_safe_id(str(row['COSMOS_ID0']))}_{_safe_id(str(row['id']))}"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    input_path = _write_grahsp_input_table(row, work_dir)
+    config_path = _write_pcigale_ini(input_path, work_dir)
+
+    cmd = _build_grahsp_command(args)
 
     completed = subprocess.run(
         cmd,

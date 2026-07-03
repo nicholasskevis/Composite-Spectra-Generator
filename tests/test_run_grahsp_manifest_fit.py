@@ -73,6 +73,21 @@ def test_grahsp_env_loads_compatibility_sitecustomize_first(tmp_path):
     assert first_pythonpath.endswith("hpc/grahsp_compat")
 
 
+def test_grahsp_command_always_requests_plot_summary(tmp_path):
+    args = argparse.Namespace(
+        python_executable=tmp_path / "python",
+        sampler_script=tmp_path / "dualsampler.py",
+        cores=1,
+        num_live_points=800,
+        num_posterior_samples=3000,
+    )
+
+    cmd = run_grahsp_manifest_fit._build_grahsp_command(args)
+
+    assert "--plot" in cmd
+    assert "--mass-max" not in cmd
+
+
 def test_sitecustomize_accepts_tuple_sfh(monkeypatch):
     class _SED:
         def __init__(self):
