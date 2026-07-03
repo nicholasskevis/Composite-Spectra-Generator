@@ -94,6 +94,12 @@ def _fit_args(tmp_path):
     )
 
 
+def test_backend_aliases_resolve_to_installed_jaxsedfit_package(run_manifest_fit):
+    assert run_manifest_fit._normalize_backend("jaxsedfit") == "jaxsedfit"
+    assert run_manifest_fit._normalize_backend("jaxsed") == "jaxsedfit"
+    assert run_manifest_fit._normalize_backend("grahspj") == "jaxsedfit"
+
+
 def test_select_manifest_entry_uses_object_id(run_manifest_fit, tmp_path):
     manifest = tmp_path / "manifest.csv"
     _write_manifest(

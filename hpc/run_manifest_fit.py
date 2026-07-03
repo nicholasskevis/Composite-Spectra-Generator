@@ -11,9 +11,9 @@ from typing import Any
 import numpy as np
 
 BACKEND_ALIASES = {
-    "jaxsed": "grahspj",
-    "jaxsedfit": "grahspj",
-    "grahspj": "grahspj",
+    "jaxsed": "jaxsedfit",
+    "jaxsedfit": "jaxsedfit",
+    "grahspj": "jaxsedfit",
 }
 
 SFR_SAMPLE_KEYS = (
