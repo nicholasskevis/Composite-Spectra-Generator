@@ -29,3 +29,12 @@ python hpc/run.xsh --all-objects --backend grahspj --job-name chimera_jaxsedfit
 
 For the external GRAHSP backend, the Python environment must include the CIGALE/GRAHSP runtime dependencies, including `configobj`, `sqlalchemy`, `numba`, and `ultranest`.
 If your GRAHSP checkout is somewhere else, pass `--grahsp-sampler-script` and `--grahsp-cigale-root` to `hpc/submit_loglbol_slurm_chunks.py`.
+
+If external GRAHSP already finished before the notebook-ready SED exports were added, you do not need to rerun the sampler as long as each work directory still has `grahsp_*/plots/sed_mJy.csv.gz`.
+Backfill the extra CSVs and update the result JSONs with:
+
+```bash
+python hpc/backfill_grahsp_notebook_outputs.py \
+  --output-dir hpc_outputs/loglbol_mass_retrieval/<run_name> \
+  --manifest fit_manifest.csv
+```

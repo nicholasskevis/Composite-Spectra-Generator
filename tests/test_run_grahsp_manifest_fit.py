@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import importlib.util
+import math
 import sys
 import types
 
@@ -95,19 +97,34 @@ def test_collect_grahsp_artifacts_copies_standard_outputs(tmp_path):
     plot_dir = work_dir / "grahsp_obj-a_varV2" / "plots"
     output_dir = tmp_path / "out"
     plot_dir.mkdir(parents=True)
-    for name in (
-        "sed_mJy.pdf",
-        "sed_lum.pdf",
-        "corner.pdf",
-        "posteriors.pdf",
-        "derived.pdf",
-        "sed_mJy.csv.gz",
-        "sed_lum.csv.gz",
-        "trace.pdf",
-    ):
+    for name in ("sed_mJy.pdf", "sed_lum.pdf", "corner.pdf", "posteriors.pdf", "derived.pdf", "trace.pdf"):
         (plot_dir / name).write_text(name, encoding="utf-8")
+    sed_csv = "\n".join(
+        [
+            "wavelength,total,Stellar (attenuated),AGN disk",
+            "0.255,10,4,2",
+            "0.510,20,8,4",
+            "1.020,30,16,8",
+        ]
+    ) + "\n"
+    with gzip.open(plot_dir / "sed_mJy.csv.gz", "wt", encoding="utf-8") as fh:
+        fh.write(sed_csv)
+    with gzip.open(plot_dir / "sed_lum.csv.gz", "wt", encoding="utf-8") as fh:
+        fh.write(sed_csv)
 
-    artifacts = run_grahsp_manifest_fit._collect_grahsp_artifacts(work_dir, output_dir, "00001_COSMOS10_obj-a")
+    row = {
+        "redshift": 1.0,
+        **{
+            name: float(i + 1)
+            for i, name in enumerate(run_grahsp_manifest_fit.CHIMERA_FILTER_NAMES)
+        },
+        **{
+            f"{name}_err": 0.1 * float(i + 1)
+            for i, name in enumerate(run_grahsp_manifest_fit.CHIMERA_FILTER_NAMES)
+        },
+    }
+
+    artifacts = run_grahsp_manifest_fit._collect_grahsp_artifacts(work_dir, output_dir, "00001_COSMOS10_obj-a", row)
 
     assert artifacts["grahsp_plot_dir"] == str(plot_dir)
     assert artifacts["sed_pdf_path"] == str(output_dir / "sed_pdfs" / "00001_COSMOS10_obj-a.pdf")
@@ -115,8 +132,54 @@ def test_collect_grahsp_artifacts_copies_standard_outputs(tmp_path):
     assert artifacts["corner_pdf_path"] == str(output_dir / "corner_pdfs" / "00001_COSMOS10_obj-a.pdf")
     assert artifacts["trace_pdf_path"] == str(output_dir / "trace_pdfs" / "00001_COSMOS10_obj-a.pdf")
     assert artifacts["sed_mjy_csv_path"] == str(output_dir / "sed_csvs" / "00001_COSMOS10_obj-a_mJy.csv.gz")
+    assert artifacts["notebook_sed_csv_path"] == str(output_dir / "notebook_sed_csvs" / "00001_COSMOS10_obj-a_notebook_sed.csv")
+    assert artifacts["photometry_csv_path"] == str(output_dir / "photometry_csvs" / "00001_COSMOS10_obj-a_photometry.csv")
     assert (output_dir / "sed_pdfs" / "00001_COSMOS10_obj-a.pdf").read_text(encoding="utf-8") == "sed_mJy.pdf"
     assert str(plot_dir / "sed_lum.pdf") in artifacts["grahsp_artifact_paths"]
+
+
+def test_write_grahsp_notebook_sed_adds_rest_frame_and_shape_columns(tmp_path):
+    sed_path = tmp_path / "sed_mJy.csv"
+    sed_path.write_text(
+        "\n".join(
+            [
+                "wavelength,total,total_errup,total_errlo,Stellar (attenuated),Stellar (attenuated)_errup,Stellar (attenuated)_errlo,AGN disk,AGN disk_errup,AGN disk_errlo",
+                "0.255,10,12,8,4,5,3,2,3,1",
+                "0.510,20,22,18,8,9,7,4,5,3",
+                "1.020,30,33,27,16,18,14,8,10,6",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "notebook_sed.csv"
+
+    norms = run_grahsp_manifest_fit._write_grahsp_notebook_sed(sed_path, output_path, redshift=0.0)
+    rows = list(csv.DictReader(open(output_path, encoding="utf-8")))
+
+    assert rows[0]["wavelength_obs_a"] == "2550.0"
+    assert rows[1]["wavelength_rest_a"] == "5100.0"
+    assert "stellar_attenuated_mjy" in rows[0]
+    assert "stellar_attenuated_flambda_shape_norm5100" in rows[0]
+    assert math.isclose(float(rows[1]["stellar_attenuated_flambda_shape_norm5100"]), 1.0)
+    assert math.isclose(float(rows[1]["agn_disk_flambda_shape_norm5100"]), 1.0)
+    assert math.isfinite(norms["stellar_attenuated_flambda_shape_norm5100_scale"])
+
+
+def test_write_grahsp_photometry_table_includes_effective_wavelengths(tmp_path):
+    row = {}
+    for i, name in enumerate(run_grahsp_manifest_fit.CHIMERA_FILTER_NAMES):
+        row[name] = float(i + 1)
+        row[f"{name}_err"] = 0.1 * float(i + 1)
+    output_path = tmp_path / "photometry.csv"
+
+    run_grahsp_manifest_fit._write_grahsp_photometry_table(row, output_path)
+    rows = list(csv.DictReader(open(output_path, encoding="utf-8")))
+
+    assert rows[0]["chimera_filter"] == "u_sdss"
+    assert rows[0]["effective_wavelength_a"] == "3543.0"
+    assert rows[-1]["grahsp_filter"] == "IRAC2"
+    assert rows[-1]["effective_wavelength_a"] == "44930.0"
 
 
 def test_sitecustomize_accepts_tuple_sfh(monkeypatch):
