@@ -194,7 +194,7 @@ def test_run_fit_saves_sed_pdf_and_records_path(run_manifest_fit, tmp_path, monk
 
         def fit(self, **kwargs):
             captured["fit"] = kwargs
-            return {"summary": {"converged": True}}
+            return types.SimpleNamespace(summary={"converged": True})
 
         def plot_corner(self, **kwargs):
             captured["corner"] = kwargs
@@ -244,6 +244,7 @@ def test_run_fit_saves_sed_pdf_and_records_path(run_manifest_fit, tmp_path, monk
     assert payload["sed_pdf_path"] == str(sed_pdf_path)
     assert payload["corner_pdf_path"] == str(corner_pdf_path)
     assert payload["trace_pdf_path"] == str(trace_pdf_path)
+    assert payload["fit_summary"] == {"converged": True}
     assert payload["sampler"] == "optax+nuts"
 
 

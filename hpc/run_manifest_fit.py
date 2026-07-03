@@ -132,6 +132,18 @@ def _extract_sfr_summary(samples: dict[str, Any]) -> dict[str, Any]:
     return {"sfr_sample_key": None}
 
 
+def _fit_result_summary(fit_result: Any) -> Any:
+    if isinstance(fit_result, dict):
+        return fit_result.get("summary", {})
+
+    summary = getattr(fit_result, "summary", None)
+    if summary is None:
+        return {}
+    if hasattr(summary, "items"):
+        return dict(summary)
+    return summary
+
+
 def _load_manifest(path: Path) -> list[dict[str, str]]:
     with open(path, "r", encoding="utf-8", newline="") as fh:
         return list(csv.DictReader(fh))
@@ -243,7 +255,7 @@ def _run_fit(
         "sed_pdf_path": str(sed_pdf_path),
         "corner_pdf_path": str(corner_pdf_path),
         "trace_pdf_path": str(trace_pdf_path),
-        "fit_summary": fit_result.get("summary", {}),
+        "fit_summary": _fit_result_summary(fit_result),
         "sampler": args.sampler,
         "backend": _normalize_backend(args.backend),
         "optax_steps": int(args.optax_steps),
