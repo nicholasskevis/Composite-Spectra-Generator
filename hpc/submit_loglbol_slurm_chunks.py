@@ -266,7 +266,6 @@ case "${{BACKEND}}" in
       --cores "${{SLURM_CPUS_PER_TASK:-1}}" \\
       --num-live-points "${{GRAHSP_NUM_LIVE_POINTS:-800}}" \\
       --num-posterior-samples "${{GRAHSP_NUM_POSTERIOR_SAMPLES:-3000}}" \\
-      --mass-max "${{GRAHSP_MASS_MAX:-13.0}}" \\
       --cache-max "${{GRAHSP_CACHE_MAX:-5000}}"
     ;;
   *)

@@ -142,4 +142,5 @@ def test_batch_script_routes_grahsp_to_grahsp_runner():
     assert 'python "${GRAHSP_RUNNER}"' in script
     assert '--fit-index "${FIT_INDEX}"' in script
     assert '--sampler-script "${GRAHSP_SAMPLER_SCRIPT}"' in script
+    assert "--mass-max" not in script
     assert '--backend grahspj' in script

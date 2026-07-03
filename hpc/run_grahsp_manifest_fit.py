@@ -340,8 +340,6 @@ def _run_grahsp(row: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]
         str(args.num_live_points),
         "--num-posterior-samples",
         str(args.num_posterior_samples),
-        "--mass-max",
-        str(args.mass_max),
     ]
     if args.plot:
         cmd.append("--plot")
@@ -428,7 +426,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cores", type=int, default=1)
     parser.add_argument("--num-live-points", type=int, default=800)
     parser.add_argument("--num-posterior-samples", type=int, default=3000)
-    parser.add_argument("--mass-max", type=float, default=13.0)
     parser.add_argument("--cache-max", type=int, default=5000)
     parser.add_argument("--plot", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
