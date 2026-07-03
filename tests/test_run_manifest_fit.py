@@ -229,7 +229,8 @@ def test_run_fit_saves_sed_pdf_and_records_path(run_manifest_fit, tmp_path, monk
 
     payload = run_manifest_fit._run_fit(row, _fit_args(tmp_path), sed_pdf_path, corner_pdf_path, trace_pdf_path)
 
-    assert captured["fit"]["fit_method"] == "optax+nuts"
+    assert "fit_method" not in captured["fit"]
+    assert cfg.inference.method == "optax+nuts"
     assert captured["fit"]["save_fig"] is True
     assert captured["fit"]["fig_path"] == sed_pdf_path
     assert captured["fit"]["fig_path"].suffix == ".pdf"
@@ -310,7 +311,8 @@ def test_run_fit_passes_nested_sampler_options(run_manifest_fit, tmp_path, monke
         tmp_path / "trace_pdfs" / "00007_COSMOS10_obj-a.pdf",
     )
 
-    assert captured["fit"]["fit_method"] == "ns"
+    assert "fit_method" not in captured["fit"]
+    assert cfg.inference.method == "ns"
     assert captured["fit"]["ns_live_points"] == 700
     assert captured["fit"]["ns_max_samples"] == 8000
     assert captured["fit"]["ns_dlogz"] == 10.0

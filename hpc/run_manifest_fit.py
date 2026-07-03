@@ -189,9 +189,9 @@ def _run_fit(
     cfg = build_chimera_fit_config(row, dsps_ssp_fn=str(args.dsps_ssp_fn))
     _patch_backend_config_compat(cfg)
     cfg.inference.seed = int(args.seed_base + row["fit_index"])
+    cfg.inference.method = args.sampler
     fitter = fitter_cls(cfg)
     fit_result = fitter.fit(
-        fit_method=args.sampler,
         prior_config=cfg.prior_config,
         dsps_ssp_fn=cfg.galaxy.dsps_ssp_fn,
         optax_steps=args.optax_steps,
