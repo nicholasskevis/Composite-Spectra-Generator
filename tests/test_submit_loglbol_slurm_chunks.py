@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from hpc.submit_loglbol_slurm_chunks import _batch_script, _run_name, _safe_run_label
+from hpc.submit_loglbol_slurm_chunks import _batch_script, _resolve_first_existing, _run_name, _safe_run_label
 
 
 def test_run_name_uses_month_day_time_and_label():
@@ -19,6 +19,27 @@ def test_run_name_sanitizes_custom_job_name():
 def test_safe_run_label_rejects_empty_labels():
     with pytest.raises(RuntimeError, match="--job-name"):
         _safe_run_label(" - ")
+
+
+def test_resolve_first_existing_prefers_grahsp_install_layout(tmp_path):
+    project_root = tmp_path / "My-AGN-research-repository"
+    sampler_script = tmp_path / "GRAHSP" / "GRAHSP-run" / "dualsampler.py"
+    cigale_root = tmp_path / "GRAHSP" / "GRAHSP"
+    project_root.mkdir()
+    sampler_script.parent.mkdir(parents=True)
+    sampler_script.write_text("# test sampler\n", encoding="utf-8")
+    cigale_root.mkdir(parents=True)
+
+    assert _resolve_first_existing(
+        project_root,
+        [Path("../sampler/dualsampler.py"), Path("../GRAHSP/GRAHSP-run/dualsampler.py")],
+        kind="file",
+    ) == sampler_script.resolve()
+    assert _resolve_first_existing(
+        project_root,
+        [Path("../cigale"), Path("../GRAHSP/GRAHSP")],
+        kind="dir",
+    ) == cigale_root.resolve()
 
 
 def test_batch_script_creates_sed_pdf_directory():

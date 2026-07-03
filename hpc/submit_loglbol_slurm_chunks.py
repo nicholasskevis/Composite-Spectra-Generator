@@ -12,6 +12,8 @@ from pathlib import Path
 
 
 DEFAULT_OUTPUT_DIR = Path("hpc_outputs/loglbol_mass_retrieval")
+DEFAULT_GRAHSP_SAMPLER_SCRIPT = Path("../GRAHSP/GRAHSP-run/dualsampler.py")
+DEFAULT_GRAHSP_CIGALE_ROOT = Path("../GRAHSP/GRAHSP")
 BACKEND_ALIASES = {
     "jaxsed": "grahspj",
     "jaxsedfit": "grahspj",
@@ -25,6 +27,16 @@ def _resolve_from_root(project_root: Path, path: Path) -> Path:
     if path.is_absolute():
         return path.resolve()
     return (project_root / path).resolve()
+
+
+def _resolve_first_existing(project_root: Path, paths: list[Path], *, kind: str) -> Path:
+    resolved = [_resolve_from_root(project_root, path) for path in paths]
+    for path in resolved:
+        if kind == "file" and path.is_file():
+            return path
+        if kind == "dir" and path.is_dir():
+            return path
+    return resolved[0]
 
 
 def _safe_run_label(value: str) -> str:
@@ -311,8 +323,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Fit backend: grahspj/jaxsedfit use hpc/run_manifest_fit.py; grahsp uses hpc/run_grahsp_manifest_fit.py.",
     )
     parser.add_argument("--grahsp-runner", type=Path, default=Path("hpc/run_grahsp_manifest_fit.py"))
-    parser.add_argument("--grahsp-sampler-script", type=Path, default=Path("../sampler/dualsampler.py"))
-    parser.add_argument("--grahsp-cigale-root", type=Path, default=Path("../cigale"))
+    parser.add_argument("--grahsp-sampler-script", type=Path, default=DEFAULT_GRAHSP_SAMPLER_SCRIPT)
+    parser.add_argument("--grahsp-cigale-root", type=Path, default=DEFAULT_GRAHSP_CIGALE_ROOT)
     parser.add_argument("--dry-run", action="store_true", help="Write task files and print sbatch plans without submitting.")
     args = parser.parse_args(argv)
     args.backend = _normalize_backend(args.backend)
@@ -329,8 +341,25 @@ def main(argv: list[str] | None = None) -> int:
     output_dir = output_base_dir / run_name
     dsps_ssp_fn = _resolve_from_root(project_root, args.dsps_ssp_fn)
     grahsp_runner = _resolve_from_root(project_root, args.grahsp_runner)
-    grahsp_sampler_script = _resolve_from_root(project_root, args.grahsp_sampler_script)
-    grahsp_cigale_root = _resolve_from_root(project_root, args.grahsp_cigale_root)
+    grahsp_sampler_script = _resolve_first_existing(
+        project_root,
+        [
+            args.grahsp_sampler_script,
+            DEFAULT_GRAHSP_SAMPLER_SCRIPT,
+            Path("../GRAHSP-run/dualsampler.py"),
+            Path("../sampler/dualsampler.py"),
+        ],
+        kind="file",
+    )
+    grahsp_cigale_root = _resolve_first_existing(
+        project_root,
+        [
+            args.grahsp_cigale_root,
+            DEFAULT_GRAHSP_CIGALE_ROOT,
+            Path("../cigale"),
+        ],
+        kind="dir",
+    )
 
     if not manifest.is_file():
         raise RuntimeError(f"Manifest not found: {manifest}")

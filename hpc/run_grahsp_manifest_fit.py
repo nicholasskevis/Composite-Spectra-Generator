@@ -17,8 +17,9 @@ from astropy.table import Table
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PROJECT_ROOT.parent
-CIGALE_ROOT = REPO_ROOT / "cigale"
-SAMPLER_SCRIPT = REPO_ROOT / "sampler" / "dualsampler.py"
+GRAHSP_INSTALL_ROOT = REPO_ROOT / "GRAHSP"
+CIGALE_ROOT = GRAHSP_INSTALL_ROOT / "GRAHSP"
+SAMPLER_SCRIPT = GRAHSP_INSTALL_ROOT / "GRAHSP-run" / "dualsampler.py"
 
 CHIMERA_FILTER_NAMES = (
     "u_sdss",

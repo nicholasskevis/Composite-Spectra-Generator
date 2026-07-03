@@ -11,7 +11,7 @@ The submitter expects these repository-root inputs by default:
 
 - `fit_manifest.csv`
 - `tempdata.h5` for the jaxsedfit/GRAHSPJ backend
-- sibling checkouts `../sampler/dualsampler.py` and `../cigale` for the external GRAHSP backend
+- `/home/<user>/GRAHSP/GRAHSP-run/dualsampler.py` and `/home/<user>/GRAHSP/GRAHSP` for the external GRAHSP backend
 
 Example dry runs:
 
@@ -28,3 +28,4 @@ python hpc/run.xsh --all-objects --backend grahspj --job-name chimera_jaxsedfit
 ```
 
 For the external GRAHSP backend, the Python environment must include the CIGALE/GRAHSP runtime dependencies, including `configobj`, `sqlalchemy`, `numba`, and `ultranest`.
+If your GRAHSP checkout is somewhere else, pass `--grahsp-sampler-script` and `--grahsp-cigale-root` to `hpc/submit_loglbol_slurm_chunks.py`.
