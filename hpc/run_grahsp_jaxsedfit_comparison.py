@@ -113,12 +113,33 @@ def _run_jaxsedfit(row: dict[str, Any], args: argparse.Namespace, output_dir: Pa
     cfg.inference.ns_max_samples = args.ns_max_samples
     cfg.inference.ns_dlogz = args.ns_dlogz
     cfg.inference.ns_resamples = args.ns_resamples
-    cfg.output.plot_fig = False
-    cfg.output.save_fig = False
-    cfg.output.save_result = False
 
     fitter = fitter_cls(cfg)
-    fit_result = fitter.fit(progress_bar=args.progress_bar)
+    output_cfg = getattr(cfg, "output", None)
+    if output_cfg is None:
+        fit_result = fitter.fit(
+            prior_config=cfg.prior_config,
+            dsps_ssp_fn=cfg.galaxy.dsps_ssp_fn,
+            optax_steps=args.optax_steps,
+            optax_lr=args.optax_lr,
+            nuts_warmup=args.nuts_warmup,
+            nuts_samples=args.nuts_samples,
+            nuts_chains=args.nuts_chains,
+            ns_live_points=args.ns_live_points,
+            ns_max_samples=args.ns_max_samples,
+            ns_dlogz=args.ns_dlogz,
+            ns_resamples=args.ns_resamples,
+            target_accept_prob=args.target_accept_prob,
+            plot_fig=False,
+            save_fig=False,
+            save_result=False,
+            progress_bar=args.progress_bar,
+        )
+    else:
+        output_cfg.plot_fig = False
+        output_cfg.save_fig = False
+        output_cfg.save_result = False
+        fit_result = fitter.fit(progress_bar=args.progress_bar)
     pred = fitter.predict()
     samples = np.asarray(fitter.samples["log_stellar_mass"], dtype=float).reshape(-1)
     logm16, recovered_logm, logm84 = np.percentile(samples, [16.0, 50.0, 84.0])
