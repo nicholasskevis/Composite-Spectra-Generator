@@ -27,7 +27,7 @@ OUTPUT_ROOT = _root_path("hpc_outputs", "loglbol_mass_retrieval")
 OUTPUT_LABEL = "manual_single_013549"
 ALL_OBJECTS_JOB_NAME = "chimera_jaxsedfit"
 ALL_OBJECTS_BACKEND = "grahspj"
-MAX_ARRAY_TASKS = 10_000
+MAX_ARRAY_TASKS = 4_000
 SLURM_PARTITION = "day_amd"
 SLURM_TIME = "02:00:00"
 SLURM_CPUS_PER_TASK = 1
@@ -170,6 +170,12 @@ def _build_all_objects_command(args: argparse.Namespace) -> list[str]:
         "--conda-env",
         args.conda_env,
     ]
+    if args.run_dir is not None:
+        cmd.extend(["--run-dir", str(args.run_dir)])
+    if args.only_missing:
+        cmd.append("--only-missing")
+    if args.rerun_failures:
+        cmd.append("--rerun-failures")
     if args.dry_run:
         cmd.append("--dry-run")
     return cmd
@@ -189,6 +195,9 @@ parser.add_argument("--ns-resamples", type=int, default=NS_RESAMPLES)
 parser.add_argument("--backend", choices=("jaxsedfit", "jaxsed", "grahspj", "grahsp"), default=ALL_OBJECTS_BACKEND)
 parser.add_argument("--job-name", default=ALL_OBJECTS_JOB_NAME)
 parser.add_argument("--max-array-tasks", type=int, default=MAX_ARRAY_TASKS)
+parser.add_argument("--run-dir", type=Path, default=None, help="Exact existing or new all-object run directory.")
+parser.add_argument("--only-missing", action="store_true", help="Submit only rows without an existing result/failure JSON in --run-dir.")
+parser.add_argument("--rerun-failures", action="store_true", help="With --only-missing, include rows that have failure JSONs.")
 parser.add_argument("--partition", default=SLURM_PARTITION)
 parser.add_argument("--time", default=SLURM_TIME, dest="time_limit")
 parser.add_argument("--cpus-per-task", type=int, default=SLURM_CPUS_PER_TASK)

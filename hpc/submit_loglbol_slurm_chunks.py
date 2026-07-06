@@ -47,6 +47,10 @@ def _safe_run_label(value: str) -> str:
     return label
 
 
+def _safe_id(value: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in "._+-" else "_" for ch in value)
+
+
 def _run_name(job_name: str, now: datetime | None = None) -> str:
     timestamp = now or datetime.now()
     return f"{timestamp.strftime('%B').lower()}{timestamp.day}_{timestamp:%H%M}_{_safe_run_label(job_name)}"
@@ -115,6 +119,32 @@ def _array_spec(task_count: int) -> str:
     if task_count == 1:
         return "0"
     return f"0-{task_count - 1}"
+
+
+def _task_stem(task: dict[str, str]) -> str:
+    return f"{int(task['fit_index']):05d}_COSMOS{_safe_id(str(task['COSMOS_ID0']))}_{_safe_id(str(task['object_id']))}"
+
+
+def _filter_missing_tasks(
+    tasks: list[dict[str, str]],
+    output_dir: Path,
+    *,
+    rerun_failures: bool,
+) -> tuple[list[dict[str, str]], int]:
+    selected = []
+    skipped = 0
+    for task in tasks:
+        stem = _task_stem(task)
+        success_path = output_dir / "results" / f"{stem}.json"
+        failure_path = output_dir / "failures" / f"{stem}.json"
+        if success_path.is_file():
+            skipped += 1
+            continue
+        if failure_path.is_file() and not rerun_failures:
+            skipped += 1
+            continue
+        selected.append(task)
+    return selected, skipped
 
 
 def _batch_script(
@@ -308,7 +338,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Base output directory; a timestamped run subdirectory is created inside it.",
     )
     parser.add_argument("--dsps-ssp-fn", type=Path, default=Path("tempdata.h5"))
-    parser.add_argument("--max-array-tasks", type=int, default=10_000)
+    parser.add_argument("--max-array-tasks", type=int, default=4_000)
+    parser.add_argument("--run-dir", type=Path, default=None, help="Exact existing or new run directory. Overrides timestamped --output-dir/<run_name>.")
+    parser.add_argument("--only-missing", action="store_true", help="Submit only rows without existing result/failure JSONs in the selected run directory.")
+    parser.add_argument("--rerun-failures", action="store_true", help="With --only-missing, include rows that already have failure JSONs.")
     parser.add_argument("--job-name", default="nicholas", help="Label appended to the timestamped Slurm job and run directory name.")
     parser.add_argument("--partition", default="day_amd")
     parser.add_argument("--time", default="02:00:00", dest="time_limit")
@@ -336,8 +369,12 @@ def main(argv: list[str] | None = None) -> int:
     project_root = Path(__file__).resolve().parents[1]
     manifest = _resolve_from_root(project_root, args.manifest)
     output_base_dir = _resolve_from_root(project_root, args.output_dir)
-    run_name = _run_name(args.job_name)
-    output_dir = output_base_dir / run_name
+    if args.run_dir is not None:
+        output_dir = _resolve_from_root(project_root, args.run_dir)
+        run_name = output_dir.name
+    else:
+        run_name = _run_name(args.job_name)
+        output_dir = output_base_dir / run_name
     dsps_ssp_fn = _resolve_from_root(project_root, args.dsps_ssp_fn)
     grahsp_runner = _resolve_from_root(project_root, args.grahsp_runner)
     grahsp_sampler_script = _resolve_first_existing(
@@ -375,6 +412,7 @@ def main(argv: list[str] | None = None) -> int:
     tasks = _load_tasks(manifest)
     if not tasks:
         raise RuntimeError(f"Manifest contains no rows: {manifest}")
+    total_task_count = len(tasks)
 
     task_dir = output_dir / "slurm_tasks"
     for subdir in (
@@ -394,11 +432,24 @@ def main(argv: list[str] | None = None) -> int:
     ):
         (output_dir / subdir).mkdir(parents=True, exist_ok=True)
 
+    if args.only_missing:
+        tasks, skipped_count = _filter_missing_tasks(tasks, output_dir, rerun_failures=args.rerun_failures)
+    else:
+        skipped_count = 0
+
+    if not tasks:
+        print(f"No tasks to submit. Manifest rows: {total_task_count}; skipped existing: {skipped_count}.")
+        return 0
+
     chunks = _chunks(tasks, args.max_array_tasks)
     print(f"Project root: {project_root}")
     print(f"Run name: {run_name}")
     print(f"Output directory: {output_dir}")
-    print(f"Manifest rows: {len(tasks)}")
+    print(f"Manifest rows: {total_task_count}")
+    if args.only_missing:
+        print(f"Selected missing rows: {len(tasks)}")
+        print(f"Skipped existing rows: {skipped_count}")
+        print(f"Rerun failures: {args.rerun_failures}")
     print(f"Backend: {args.backend}")
     print(f"Max array tasks: {args.max_array_tasks}")
     print(f"Chunks: {len(chunks)}")
@@ -421,7 +472,7 @@ def main(argv: list[str] | None = None) -> int:
             manifest=manifest,
             dsps_ssp_fn=dsps_ssp_fn,
             task_file=task_file,
-            expected_count=len(tasks),
+            expected_count=total_task_count,
             conda_env=args.conda_env,
             backend=args.backend,
             grahsp_runner=grahsp_runner,

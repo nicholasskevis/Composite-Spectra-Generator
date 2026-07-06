@@ -5,7 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from hpc.submit_loglbol_slurm_chunks import _batch_script, _resolve_first_existing, _run_name, _safe_run_label
+from hpc.submit_loglbol_slurm_chunks import (
+    _batch_script,
+    _chunks,
+    _filter_missing_tasks,
+    _resolve_first_existing,
+    _run_name,
+    _safe_run_label,
+)
 
 
 def test_run_name_uses_month_day_time_and_label():
@@ -19,6 +26,41 @@ def test_run_name_sanitizes_custom_job_name():
 def test_safe_run_label_rejects_empty_labels():
     with pytest.raises(RuntimeError, match="--job-name"):
         _safe_run_label(" - ")
+
+
+def test_chunks_split_manifest_rows_at_four_thousand():
+    tasks = [{"fit_index": str(i), "object_id": f"obj-{i}", "COSMOS_ID0": str(i)} for i in range(13558)]
+
+    chunks = _chunks(tasks, 4000)
+
+    assert [(start, end, len(chunk)) for start, end, chunk in chunks] == [
+        (0, 3999, 4000),
+        (4000, 7999, 4000),
+        (8000, 11999, 4000),
+        (12000, 13557, 1558),
+    ]
+
+
+def test_filter_missing_tasks_skips_existing_results_and_optionally_failures(tmp_path):
+    tasks = [
+        {"fit_index": "0", "object_id": "obj-a", "COSMOS_ID0": "10"},
+        {"fit_index": "1", "object_id": "obj-b", "COSMOS_ID0": "11"},
+        {"fit_index": "2", "object_id": "obj-c", "COSMOS_ID0": "12"},
+    ]
+    result = tmp_path / "results" / "00000_COSMOS10_obj-a.json"
+    failure = tmp_path / "failures" / "00001_COSMOS11_obj-b.json"
+    result.parent.mkdir()
+    failure.parent.mkdir()
+    result.write_text("{}", encoding="utf-8")
+    failure.write_text("{}", encoding="utf-8")
+
+    selected, skipped = _filter_missing_tasks(tasks, tmp_path, rerun_failures=False)
+    selected_with_failures, skipped_with_failures = _filter_missing_tasks(tasks, tmp_path, rerun_failures=True)
+
+    assert [task["fit_index"] for task in selected] == ["2"]
+    assert skipped == 2
+    assert [task["fit_index"] for task in selected_with_failures] == ["1", "2"]
+    assert skipped_with_failures == 1
 
 
 def test_resolve_first_existing_prefers_grahsp_install_layout(tmp_path):
