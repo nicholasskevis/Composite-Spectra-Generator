@@ -46,7 +46,7 @@ def backfill(output_dir: Path, manifest: Path) -> tuple[int, int]:
         stem = _stem_from_payload(payload)
         work_dir = Path(str(payload.get("work_dir") or output_dir / "work" / stem)).expanduser().resolve()
         artifacts = run_grahsp_manifest_fit._collect_grahsp_artifacts(work_dir, output_dir, stem, row)
-        if not artifacts.get("notebook_sed_csv_path") and not artifacts.get("photometry_csv_path"):
+        if not artifacts.get("sed_mjy_csv_path") and not artifacts.get("photometry_csv_path"):
             skipped += 1
             continue
 
@@ -59,7 +59,7 @@ def backfill(output_dir: Path, manifest: Path) -> tuple[int, int]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Create notebook-ready GRAHSP SED and photometry CSVs for already completed HPC results."
+        description="Collect raw GRAHSP SED and photometry CSVs for already completed HPC results."
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, default=Path("fit_manifest.csv"))

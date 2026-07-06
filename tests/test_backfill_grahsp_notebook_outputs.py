@@ -98,7 +98,7 @@ def test_backfill_updates_existing_grahsp_result(tmp_path):
 
     assert updated == 1
     assert skipped == 0
-    assert (output_dir / "notebook_sed_csvs" / f"{stem}_notebook_sed.csv").is_file()
+    assert (output_dir / "sed_csvs" / f"{stem}_mJy.csv.gz").is_file()
     assert (output_dir / "photometry_csvs" / f"{stem}_photometry.csv").is_file()
-    assert payload["notebook_sed_csv_path"].endswith("_notebook_sed.csv")
+    assert payload["sed_mjy_csv_path"].endswith("_mJy.csv.gz")
     assert payload["photometry_csv_path"].endswith("_photometry.csv")

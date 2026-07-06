@@ -4,7 +4,6 @@ import argparse
 import csv
 import gzip
 import importlib.util
-import math
 import sys
 import types
 
@@ -147,7 +146,6 @@ def test_collect_grahsp_artifacts_copies_standard_outputs(tmp_path):
     assert artifacts["corner_pdf_path"] == str(output_dir / "corner_pdfs" / "00001_COSMOS10_obj-a.pdf")
     assert artifacts["trace_pdf_path"] == str(output_dir / "trace_pdfs" / "00001_COSMOS10_obj-a.pdf")
     assert artifacts["sed_mjy_csv_path"] == str(output_dir / "sed_csvs" / "00001_COSMOS10_obj-a_mJy.csv.gz")
-    assert artifacts["notebook_sed_csv_path"] == str(output_dir / "notebook_sed_csvs" / "00001_COSMOS10_obj-a_notebook_sed.csv")
     assert artifacts["photometry_csv_path"] == str(output_dir / "photometry_csvs" / "00001_COSMOS10_obj-a_photometry.csv")
     assert (output_dir / "sed_pdfs" / "00001_COSMOS10_obj-a.pdf").read_text(encoding="utf-8") == "sed_mJy.pdf"
     assert str(plot_dir / "sed_lum.pdf") in artifacts["grahsp_artifact_paths"]
@@ -190,34 +188,6 @@ def test_collect_grahsp_artifacts_skips_and_cleans_pdfs_by_default(tmp_path):
     assert not (plot_dir / "sed_mJy.pdf").exists()
     assert not (plot_dir / "corner.pdf").exists()
     assert len(artifacts["removed_source_pdfs"]) == 2
-
-
-def test_write_grahsp_notebook_sed_adds_rest_frame_and_shape_columns(tmp_path):
-    sed_path = tmp_path / "sed_mJy.csv"
-    sed_path.write_text(
-        "\n".join(
-            [
-                "wavelength,total,total_errup,total_errlo,Stellar (attenuated),Stellar (attenuated)_errup,Stellar (attenuated)_errlo,AGN disk,AGN disk_errup,AGN disk_errlo",
-                "0.255,10,12,8,4,5,3,2,3,1",
-                "0.510,20,22,18,8,9,7,4,5,3",
-                "1.020,30,33,27,16,18,14,8,10,6",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    output_path = tmp_path / "notebook_sed.csv"
-
-    norms = run_grahsp_manifest_fit._write_grahsp_notebook_sed(sed_path, output_path, redshift=0.0)
-    rows = list(csv.DictReader(open(output_path, encoding="utf-8")))
-
-    assert rows[0]["wavelength_obs_a"] == "2550.0"
-    assert rows[1]["wavelength_rest_a"] == "5100.0"
-    assert "stellar_attenuated_mjy" in rows[0]
-    assert "stellar_attenuated_flambda_shape_norm5100" in rows[0]
-    assert math.isclose(float(rows[1]["stellar_attenuated_flambda_shape_norm5100"]), 1.0)
-    assert math.isclose(float(rows[1]["agn_disk_flambda_shape_norm5100"]), 1.0)
-    assert math.isfinite(norms["stellar_attenuated_flambda_shape_norm5100_scale"])
 
 
 def test_write_grahsp_photometry_table_includes_effective_wavelengths(tmp_path):

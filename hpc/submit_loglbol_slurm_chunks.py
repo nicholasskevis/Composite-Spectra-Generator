@@ -193,7 +193,7 @@ GRAHSP_RUNNER={shlex.quote(str(grahsp_runner))}
 GRAHSP_SAMPLER_SCRIPT={shlex.quote(str(grahsp_sampler_script))}
 GRAHSP_CIGALE_ROOT={shlex.quote(str(grahsp_cigale_root))}
 
-mkdir -p "${{OUTPUT_DIR}}/logs" "${{OUTPUT_DIR}}/results" "${{OUTPUT_DIR}}/failures" "${{OUTPUT_DIR}}/sed_pdfs" "${{OUTPUT_DIR}}/sed_lum_pdfs" "${{OUTPUT_DIR}}/corner_pdfs" "${{OUTPUT_DIR}}/trace_pdfs" "${{OUTPUT_DIR}}/posteriors_pdfs" "${{OUTPUT_DIR}}/derived_pdfs" "${{OUTPUT_DIR}}/sed_csvs" "${{OUTPUT_DIR}}/notebook_sed_csvs" "${{OUTPUT_DIR}}/photometry_csvs"
+mkdir -p "${{OUTPUT_DIR}}/logs" "${{OUTPUT_DIR}}/results" "${{OUTPUT_DIR}}/failures" "${{OUTPUT_DIR}}/sed_pdfs" "${{OUTPUT_DIR}}/sed_lum_pdfs" "${{OUTPUT_DIR}}/corner_pdfs" "${{OUTPUT_DIR}}/trace_pdfs" "${{OUTPUT_DIR}}/posteriors_pdfs" "${{OUTPUT_DIR}}/derived_pdfs" "${{OUTPUT_DIR}}/sed_csvs" "${{OUTPUT_DIR}}/photometry_csvs"
 cd "${{PROJECT_ROOT}}"
 
 module reset
@@ -426,7 +426,6 @@ def main(argv: list[str] | None = None) -> int:
         "posteriors_pdfs",
         "derived_pdfs",
         "sed_csvs",
-        "notebook_sed_csvs",
         "photometry_csvs",
         "slurm_tasks",
     ):

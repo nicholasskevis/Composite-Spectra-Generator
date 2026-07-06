@@ -70,19 +70,6 @@ CHIMERA_EFFECTIVE_WAVELENGTHS_A = {
     "spitzer.irac.I2": 44930.0,
 }
 
-GRAHSP_NOTEBOOK_COMPONENTS = (
-    "total",
-    "Stellar (attenuated)",
-    "Nebular emission",
-    "Dust",
-    "AGN disk",
-    "AGN torus",
-    "FeII",
-    "AGN lines",
-    "Balmer continuum",
-)
-
-
 def _array_index_from_env() -> tuple[str, int] | None:
     for name in ("SLURM_ARRAY_TASK_ID", "PBS_ARRAY_INDEX", "LSB_JOBINDEX"):
         raw = os.environ.get(name)
@@ -396,59 +383,6 @@ def _copy_artifact(src: Path | None, dst: Path) -> str:
     return str(dst)
 
 
-def _positive_norm_curve(wave: np.ndarray, y: np.ndarray, norm_wave: float = 5100.0) -> tuple[np.ndarray, np.ndarray, float]:
-    order = np.argsort(wave)
-    wave = np.asarray(wave, dtype=float)[order]
-    y = np.asarray(y, dtype=float)[order]
-    finite = np.isfinite(wave) & np.isfinite(y) & (wave > 0.0) & (y > 0.0)
-    norm = np.nan
-    if finite.sum() >= 3:
-        norm = float(np.interp(norm_wave, wave[finite], y[finite], left=np.nan, right=np.nan))
-        if not np.isfinite(norm) or norm <= 0.0:
-            norm = float(y[finite][np.nanargmin(np.abs(wave[finite] - norm_wave))])
-    if not np.isfinite(norm) or norm <= 0.0:
-        return wave, np.full_like(wave, np.nan), np.nan
-    return wave, y / norm, norm
-
-
-def _write_grahsp_notebook_sed(sed_mjy_path: Path, output_path: Path, redshift: float) -> dict[str, Any]:
-    sed = Table.read(sed_mjy_path, format="ascii.csv")
-    wave_um = np.asarray(sed["wavelength"], dtype=float)
-    wave_obs_a = wave_um * 1.0e4
-    wave_rest_a = wave_obs_a / (1.0 + max(float(redshift), 0.0))
-    out = Table()
-    out["wavelength_um"] = wave_um
-    out["wavelength_obs_a"] = wave_obs_a
-    out["wavelength_rest_a"] = wave_rest_a
-
-    normalizations: dict[str, float] = {}
-    for component in GRAHSP_NOTEBOOK_COMPONENTS:
-        if component not in sed.colnames:
-            continue
-        values = np.asarray(sed[component], dtype=float)
-        safe_name = (
-            component.lower()
-            .replace(" ", "_")
-            .replace("(", "")
-            .replace(")", "")
-            .replace("-", "_")
-        )
-        out[f"{safe_name}_mjy"] = values
-        if f"{component}_errlo" in sed.colnames:
-            out[f"{safe_name}_mjy_errlo"] = np.asarray(sed[f"{component}_errlo"], dtype=float)
-        if f"{component}_errup" in sed.colnames:
-            out[f"{safe_name}_mjy_errup"] = np.asarray(sed[f"{component}_errup"], dtype=float)
-        flambda_shape = values / np.maximum(wave_obs_a, 1.0e-30) ** 2
-        out[f"{safe_name}_flambda_shape"] = flambda_shape
-        _, normed, norm = _positive_norm_curve(wave_rest_a, flambda_shape)
-        out[f"{safe_name}_flambda_shape_norm5100"] = normed
-        normalizations[f"{safe_name}_flambda_shape_norm5100_scale"] = norm
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    out.write(output_path, format="ascii.csv", overwrite=True)
-    return normalizations
-
-
 def _write_grahsp_photometry_table(row: dict[str, Any], output_path: Path) -> None:
     table = Table(
         rows=[
@@ -499,9 +433,7 @@ def _collect_grahsp_artifacts(
         "derived_pdf_path": "",
         "sed_mjy_csv_path": "",
         "sed_lum_csv_path": "",
-        "notebook_sed_csv_path": "",
         "photometry_csv_path": "",
-        "notebook_sed_normalizations": {},
         "removed_source_pdfs": [],
     }
     if plot_dir is None:
@@ -519,14 +451,6 @@ def _collect_grahsp_artifacts(
         artifacts["derived_pdf_path"] = _copy_artifact(plot_dir / "derived.pdf", output_dir / "derived_pdfs" / f"{stem}.pdf")
     artifacts["sed_mjy_csv_path"] = _copy_artifact(plot_dir / "sed_mJy.csv.gz", output_dir / "sed_csvs" / f"{stem}_mJy.csv.gz")
     artifacts["sed_lum_csv_path"] = _copy_artifact(plot_dir / "sed_lum.csv.gz", output_dir / "sed_csvs" / f"{stem}_lum.csv.gz")
-    if artifacts["sed_mjy_csv_path"]:
-        notebook_sed_path = output_dir / "notebook_sed_csvs" / f"{stem}_notebook_sed.csv"
-        artifacts["notebook_sed_normalizations"] = _write_grahsp_notebook_sed(
-            Path(artifacts["sed_mjy_csv_path"]),
-            notebook_sed_path,
-            float(row["redshift"]),
-        )
-        artifacts["notebook_sed_csv_path"] = str(notebook_sed_path)
     photometry_path = output_dir / "photometry_csvs" / f"{stem}_photometry.csv"
     _write_grahsp_photometry_table(row, photometry_path)
     artifacts["photometry_csv_path"] = str(photometry_path)
