@@ -354,8 +354,12 @@ def _build_grahsp_env(args: argparse.Namespace, work_dir: Path) -> dict[str, str
     env["HDF5_USE_FILE_LOCKING"] = "FALSE"
     env["MPLCONFIGDIR"] = str(work_dir / "mplconfig")
     env["CACHE_MAX"] = str(args.cache_max)
-    env.setdefault("PLOT_CORNER", "1")
-    env.setdefault("PLOT_TRACE", "1")
+    if getattr(args, "keep_pdfs", False):
+        env.setdefault("PLOT_CORNER", "1")
+        env.setdefault("PLOT_TRACE", "1")
+    else:
+        env.setdefault("PLOT_CORNER", "0")
+        env.setdefault("PLOT_TRACE", "0")
     (work_dir / "mplconfig").mkdir(parents=True, exist_ok=True)
     return env
 
@@ -463,7 +467,26 @@ def _write_grahsp_photometry_table(row: dict[str, Any], output_path: Path) -> No
     table.write(output_path, format="ascii.csv", overwrite=True)
 
 
-def _collect_grahsp_artifacts(work_dir: Path, output_dir: Path, stem: str, row: dict[str, Any]) -> dict[str, Any]:
+def _cleanup_grahsp_plot_pdfs(plot_dir: Path) -> list[str]:
+    removed = []
+    for path in sorted(plot_dir.rglob("*.pdf")):
+        try:
+            path.unlink()
+            removed.append(str(path))
+        except FileNotFoundError:
+            continue
+    return removed
+
+
+def _collect_grahsp_artifacts(
+    work_dir: Path,
+    output_dir: Path,
+    stem: str,
+    row: dict[str, Any],
+    *,
+    keep_pdfs: bool = False,
+    cleanup_source_pdfs: bool = False,
+) -> dict[str, Any]:
     plot_dir = _find_grahsp_plot_dir(work_dir)
     artifacts: dict[str, Any] = {
         "grahsp_plot_dir": str(plot_dir) if plot_dir is not None else "",
@@ -479,6 +502,7 @@ def _collect_grahsp_artifacts(work_dir: Path, output_dir: Path, stem: str, row: 
         "notebook_sed_csv_path": "",
         "photometry_csv_path": "",
         "notebook_sed_normalizations": {},
+        "removed_source_pdfs": [],
     }
     if plot_dir is None:
         return artifacts
@@ -487,11 +511,12 @@ def _collect_grahsp_artifacts(work_dir: Path, output_dir: Path, stem: str, row: 
         if path.is_file() and path.suffix.lower() in {".pdf", ".png", ".gz", ".csv"}:
             artifacts["grahsp_artifact_paths"].append(str(path))
 
-    artifacts["sed_pdf_path"] = _copy_artifact(plot_dir / "sed_mJy.pdf", output_dir / "sed_pdfs" / f"{stem}.pdf")
-    artifacts["sed_lum_pdf_path"] = _copy_artifact(plot_dir / "sed_lum.pdf", output_dir / "sed_lum_pdfs" / f"{stem}.pdf")
-    artifacts["corner_pdf_path"] = _copy_artifact(plot_dir / "corner.pdf", output_dir / "corner_pdfs" / f"{stem}.pdf")
-    artifacts["posteriors_pdf_path"] = _copy_artifact(plot_dir / "posteriors.pdf", output_dir / "posteriors_pdfs" / f"{stem}.pdf")
-    artifacts["derived_pdf_path"] = _copy_artifact(plot_dir / "derived.pdf", output_dir / "derived_pdfs" / f"{stem}.pdf")
+    if keep_pdfs:
+        artifacts["sed_pdf_path"] = _copy_artifact(plot_dir / "sed_mJy.pdf", output_dir / "sed_pdfs" / f"{stem}.pdf")
+        artifacts["sed_lum_pdf_path"] = _copy_artifact(plot_dir / "sed_lum.pdf", output_dir / "sed_lum_pdfs" / f"{stem}.pdf")
+        artifacts["corner_pdf_path"] = _copy_artifact(plot_dir / "corner.pdf", output_dir / "corner_pdfs" / f"{stem}.pdf")
+        artifacts["posteriors_pdf_path"] = _copy_artifact(plot_dir / "posteriors.pdf", output_dir / "posteriors_pdfs" / f"{stem}.pdf")
+        artifacts["derived_pdf_path"] = _copy_artifact(plot_dir / "derived.pdf", output_dir / "derived_pdfs" / f"{stem}.pdf")
     artifacts["sed_mjy_csv_path"] = _copy_artifact(plot_dir / "sed_mJy.csv.gz", output_dir / "sed_csvs" / f"{stem}_mJy.csv.gz")
     artifacts["sed_lum_csv_path"] = _copy_artifact(plot_dir / "sed_lum.csv.gz", output_dir / "sed_csvs" / f"{stem}_lum.csv.gz")
     if artifacts["sed_mjy_csv_path"]:
@@ -506,11 +531,14 @@ def _collect_grahsp_artifacts(work_dir: Path, output_dir: Path, stem: str, row: 
     _write_grahsp_photometry_table(row, photometry_path)
     artifacts["photometry_csv_path"] = str(photometry_path)
 
-    trace_candidates = sorted(plot_dir.rglob("*trace*.pdf"))
-    artifacts["trace_pdf_path"] = _copy_artifact(
-        trace_candidates[0] if trace_candidates else None,
-        output_dir / "trace_pdfs" / f"{stem}.pdf",
-    )
+    if keep_pdfs:
+        trace_candidates = sorted(plot_dir.rglob("*trace*.pdf"))
+        artifacts["trace_pdf_path"] = _copy_artifact(
+            trace_candidates[0] if trace_candidates else None,
+            output_dir / "trace_pdfs" / f"{stem}.pdf",
+        )
+    if cleanup_source_pdfs:
+        artifacts["removed_source_pdfs"] = _cleanup_grahsp_plot_pdfs(plot_dir)
     return artifacts
 
 
@@ -577,7 +605,16 @@ def _run_grahsp(row: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]
         "nuts_chains": "",
         "target_accept_prob": "",
     }
-    payload.update(_collect_grahsp_artifacts(work_dir, args.output_dir, stem, row))
+    payload.update(
+        _collect_grahsp_artifacts(
+            work_dir,
+            args.output_dir,
+            stem,
+            row,
+            keep_pdfs=args.keep_pdfs,
+            cleanup_source_pdfs=not args.keep_pdfs,
+        )
+    )
     for optional_name in (
         "log_stellar_mass_mean",
         "log_stellar_mass_std",
@@ -608,6 +645,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--num-posterior-samples", type=int, default=3000)
     parser.add_argument("--cache-max", type=int, default=5000)
     parser.add_argument("--plot", action="store_true")
+    parser.add_argument("--keep-pdfs", action="store_true", help="Keep and copy GRAHSP PDF plot products. By default only CSV products are retained.")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 

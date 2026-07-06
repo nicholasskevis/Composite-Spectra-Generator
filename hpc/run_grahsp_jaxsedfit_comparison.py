@@ -190,6 +190,7 @@ def _run_grahsp(row: dict[str, str], args: argparse.Namespace, output_dir: Path)
         num_live_points=args.grahsp_live_points,
         num_posterior_samples=args.grahsp_posterior_samples,
         cache_max=args.grahsp_cache_max,
+        keep_pdfs=args.keep_grahsp_pdfs,
     )
     filter_names, _, _ = jaxsedfit_runner._load_backend("jaxsedfit")
     manifest_row = jaxsedfit_runner._row_from_manifest(row, filter_names)
@@ -330,6 +331,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--grahsp-live-points", type=int, default=800)
     parser.add_argument("--grahsp-posterior-samples", type=int, default=3000)
     parser.add_argument("--grahsp-cache-max", type=int, default=5000)
+    parser.add_argument("--keep-grahsp-pdfs", action="store_true", help="Keep and copy GRAHSP PDFs. By default only CSV products are retained.")
     parser.add_argument("--corner-max-params", type=int, default=8)
     parser.add_argument("--skip-jaxsedfit", action="store_true")
     parser.add_argument("--skip-grahsp", action="store_true")

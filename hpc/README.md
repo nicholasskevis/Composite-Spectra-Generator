@@ -53,6 +53,8 @@ python hpc/backfill_grahsp_notebook_outputs.py \
   --manifest fit_manifest.csv
 ```
 
+By default, external GRAHSP runs now retain the CSV products needed to rebuild SED plots and remove/copy no PDF plot products. This keeps home-directory usage much lower. If you specifically need the GRAHSP PDFs for one run, call `hpc/run_grahsp_manifest_fit.py` directly with `--keep-pdfs`.
+
 ## Single-Object JAXSEDFit vs GRAHSP Comparison
 
 Notebook 11 is also available as a non-interactive HPC script:
@@ -72,6 +74,7 @@ hpc_outputs/loglbol_mass_retrieval/grahsp_vs_jaxsedfit_single/
 ```
 
 Each run folder contains `jaxsedfit_result.json`, `grahsp_result.json`, `comparison_summary.json`, the JAXSEDFit PDFs, the GRAHSP work/artifact folders, and `grahsp_vs_jaxsedfit_sed.png` when both backends complete.
+The GRAHSP side keeps CSV products by default; pass `--keep-grahsp-pdfs` to `hpc/run_grahsp_jaxsedfit_comparison.py` only when you need the original GRAHSP PDF products too.
 
 For a quick path/manifest check on the login node:
 
