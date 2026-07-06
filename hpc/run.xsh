@@ -39,6 +39,27 @@ OPTAX_LR = "1.0e-2"
 TARGET_ACCEPT_PROB = 0.85
 COMPARE_OBJECT_ID = "030750.73+004852.8_376768_0.0003"
 COMPARE_N_WAVE = 512
+SPECTRA_MANIFEST = _root_path(
+    "notebook_outputs",
+    "all_chimera_notebook6_spectra",
+    "chimera_notebook6_spectra_manifest.csv",
+)
+JOINT_OUTPUT_ROOT = _root_path("hpc_outputs", "joint_photometry_spectroscopy")
+JOINT_JOB_NAME = "chimera_joint_spectro"
+JOINT_MAX_ARRAY_TASKS = 1000
+JOINT_SLURM_PARTITION = "day"
+JOINT_SLURM_TIME = "04:00:00"
+JOINT_SLURM_CPUS_PER_TASK = 1
+JOINT_SLURM_MEM_PER_CPU = "12g"
+JOINT_SLURM_CONDA_ENV = "jaxsedfit"
+JOINT_SAMPLER = "optax"
+JOINT_N_WAVE = 512
+JOINT_OPTAX_STEPS = 600
+JOINT_OPTAX_LR = "5.0e-3"
+JOINT_NUTS_WARMUP = 250
+JOINT_NUTS_SAMPLES = 250
+JOINT_NUTS_CHAINS = 1
+JOINT_MAX_TREE_DEPTH = 8
 
 
 # -----------------------------------------------------------------------------
@@ -227,9 +248,83 @@ def _build_comparison_command(args: argparse.Namespace) -> list[str]:
     return cmd
 
 
+def _build_joint_spectra_command(args: argparse.Namespace) -> list[str]:
+    output_dir = args.output_dir if args.output_dir is not None else JOINT_OUTPUT_ROOT
+    common = [
+        "--manifest",
+        str(MANIFEST),
+        "--spectra-manifest",
+        str(args.spectra_manifest),
+        "--output-dir",
+        str(output_dir),
+        "--dsps-ssp-fn",
+        str(DSPS_SSP_FN),
+        "--sampler",
+        args.joint_sampler,
+        "--n-wave",
+        str(args.n_wave),
+        "--optax-steps",
+        str(args.joint_optax_steps),
+        "--optax-lr",
+        str(args.joint_optax_lr),
+        "--nuts-warmup",
+        str(args.nuts_warmup),
+        "--nuts-samples",
+        str(args.nuts_samples),
+        "--nuts-chains",
+        str(args.nuts_chains),
+        "--target-accept-prob",
+        str(TARGET_ACCEPT_PROB),
+        "--max-tree-depth",
+        str(args.max_tree_depth),
+    ]
+    if args.all_objects:
+        cmd = [
+            "python",
+            str(_root_path("hpc", "submit_joint_spectro_slurm_chunks.py")),
+            *common,
+            "--job-name",
+            args.job_name,
+            "--max-array-tasks",
+            str(args.max_array_tasks),
+            "--partition",
+            args.partition,
+            "--time",
+            args.time_limit,
+            "--cpus-per-task",
+            str(args.cpus_per_task),
+            "--mem-per-cpu",
+            args.mem_per_cpu,
+            "--conda-env",
+            args.conda_env,
+        ]
+        if args.run_dir is not None:
+            cmd.extend(["--run-dir", str(args.run_dir)])
+        if args.only_missing:
+            cmd.append("--only-missing")
+        if args.rerun_failures:
+            cmd.append("--rerun-failures")
+    else:
+        cmd = [
+            "python",
+            str(_root_path("hpc", "run_joint_spectro_manifest_fit.py")),
+            *common,
+            "--object-id",
+            args.object_id,
+            "--expected-count",
+            str(EXPECTED_COUNT),
+        ]
+    if args.dry_run:
+        cmd.append("--dry-run")
+    if args.progress_bar:
+        cmd.append("--progress-bar")
+    return cmd
+
+
 parser = argparse.ArgumentParser(description="Run one configured fit, or submit all manifest rows as Slurm chunks.")
 parser.add_argument("--all-objects", action="store_true", help="Submit every manifest row as chunked Slurm arrays.")
 parser.add_argument("--compare-backends", action="store_true", help="Run one object through both JAXSEDFit and external GRAHSP.")
+parser.add_argument("--joint-spectra", action="store_true", help="Run JAXSEDFit jointly on Chimera photometry and notebook-6 spectra.")
 parser.add_argument("--sampler", choices=("optax+nuts", "ns"), default="optax+nuts")
 parser.add_argument(
     "--output-dir",
@@ -239,8 +334,8 @@ parser.add_argument(
 )
 parser.add_argument("--dry-run", action="store_true")
 parser.add_argument("--progress-bar", action="store_true", help="Show fitter progress bars in single comparison mode.")
-parser.add_argument("--object-id", default=COMPARE_OBJECT_ID, help="Object id for --compare-backends.")
-parser.add_argument("--n-wave", type=int, default=COMPARE_N_WAVE, help="JAXSEDFit wavelength grid size for --compare-backends.")
+parser.add_argument("--object-id", default=COMPARE_OBJECT_ID, help="Object id for --compare-backends or --joint-spectra.")
+parser.add_argument("--n-wave", type=int, default=COMPARE_N_WAVE, help="JAXSEDFit wavelength grid size for --compare-backends/--joint-spectra.")
 parser.add_argument("--nuts-warmup", type=int, default=NUTS_WARMUP, help="NUTS warmup draws for --compare-backends.")
 parser.add_argument("--nuts-samples", type=int, default=NUTS_SAMPLES, help="NUTS posterior draws for --compare-backends.")
 parser.add_argument("--nuts-chains", type=int, default=NUTS_CHAINS, help="NUTS chains for --compare-backends.")
@@ -259,12 +354,49 @@ parser.add_argument("--time", default=SLURM_TIME, dest="time_limit")
 parser.add_argument("--cpus-per-task", type=int, default=SLURM_CPUS_PER_TASK)
 parser.add_argument("--mem-per-cpu", default=SLURM_MEM_PER_CPU)
 parser.add_argument("--conda-env", default=SLURM_CONDA_ENV)
+parser.add_argument("--spectra-manifest", type=Path, default=SPECTRA_MANIFEST)
+parser.add_argument("--joint-sampler", choices=("optax", "nuts", "optax+nuts", "ns"), default=JOINT_SAMPLER)
+parser.add_argument("--joint-optax-steps", type=int, default=JOINT_OPTAX_STEPS)
+parser.add_argument("--joint-optax-lr", type=float, default=JOINT_OPTAX_LR)
+parser.add_argument("--max-tree-depth", type=int, default=JOINT_MAX_TREE_DEPTH)
 args = parser.parse_args()
 
+if args.joint_spectra:
+    if args.backend == ALL_OBJECTS_BACKEND:
+        args.backend = "jaxsedfit"
+    if args.job_name == ALL_OBJECTS_JOB_NAME:
+        args.job_name = JOINT_JOB_NAME
+    if args.max_array_tasks == MAX_ARRAY_TASKS:
+        args.max_array_tasks = JOINT_MAX_ARRAY_TASKS
+    if args.partition == SLURM_PARTITION:
+        args.partition = JOINT_SLURM_PARTITION
+    if args.time_limit == SLURM_TIME:
+        args.time_limit = JOINT_SLURM_TIME
+    if args.cpus_per_task == SLURM_CPUS_PER_TASK:
+        args.cpus_per_task = JOINT_SLURM_CPUS_PER_TASK
+    if args.mem_per_cpu == SLURM_MEM_PER_CPU:
+        args.mem_per_cpu = JOINT_SLURM_MEM_PER_CPU
+    if args.conda_env == SLURM_CONDA_ENV:
+        args.conda_env = JOINT_SLURM_CONDA_ENV
+    if args.output_dir is None:
+        args.output_dir = JOINT_OUTPUT_ROOT
+    if args.n_wave == COMPARE_N_WAVE:
+        args.n_wave = JOINT_N_WAVE
+    if args.nuts_warmup == NUTS_WARMUP:
+        args.nuts_warmup = JOINT_NUTS_WARMUP
+    if args.nuts_samples == NUTS_SAMPLES:
+        args.nuts_samples = JOINT_NUTS_SAMPLES
+    if args.nuts_chains == NUTS_CHAINS:
+        args.nuts_chains = JOINT_NUTS_CHAINS
+
+if sum(bool(x) for x in (args.compare_backends, args.joint_spectra)) > 1:
+    raise SystemExit("--compare-backends and --joint-spectra cannot be used together.")
 if args.all_objects and args.compare_backends:
     raise SystemExit("--all-objects and --compare-backends cannot be used together.")
 
-if args.compare_backends:
+if args.joint_spectra:
+    cmd = _build_joint_spectra_command(args)
+elif args.compare_backends:
     cmd = _build_comparison_command(args)
 elif args.all_objects:
     cmd = _build_all_objects_command(args)
