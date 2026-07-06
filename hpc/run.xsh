@@ -37,6 +37,8 @@ SLURM_CONDA_ENV = "nicholas"
 OPTAX_STEPS = 300
 OPTAX_LR = "1.0e-2"
 TARGET_ACCEPT_PROB = 0.85
+COMPARE_OBJECT_ID = "030750.73+004852.8_376768_0.0003"
+COMPARE_N_WAVE = 512
 
 
 # -----------------------------------------------------------------------------
@@ -181,8 +183,53 @@ def _build_all_objects_command(args: argparse.Namespace) -> list[str]:
     return cmd
 
 
+def _build_comparison_command(args: argparse.Namespace) -> list[str]:
+    cmd = [
+        "python",
+        str(_root_path("hpc", "run_grahsp_jaxsedfit_comparison.py")),
+        "--manifest",
+        str(MANIFEST),
+        "--object-id",
+        args.object_id,
+        "--expected-count",
+        str(EXPECTED_COUNT),
+        "--output-dir",
+        str(args.output_dir if args.output_dir is not None else OUTPUT_ROOT / "grahsp_vs_jaxsedfit_single"),
+        "--dsps-ssp-fn",
+        str(DSPS_SSP_FN),
+        "--n-wave",
+        str(args.n_wave),
+        "--sampler",
+        args.sampler,
+        "--optax-steps",
+        str(OPTAX_STEPS),
+        "--optax-lr",
+        str(OPTAX_LR),
+        "--target-accept-prob",
+        str(TARGET_ACCEPT_PROB),
+        "--nuts-warmup",
+        str(args.nuts_warmup),
+        "--nuts-samples",
+        str(args.nuts_samples),
+        "--nuts-chains",
+        str(args.nuts_chains),
+    ]
+    if args.dry_run:
+        cmd.append("--dry-run")
+    if args.progress_bar:
+        cmd.append("--progress-bar")
+    if args.skip_jaxsedfit:
+        cmd.append("--skip-jaxsedfit")
+    if args.skip_grahsp:
+        cmd.append("--skip-grahsp")
+    if args.skip_jaxsedfit_plots:
+        cmd.append("--skip-jaxsedfit-plots")
+    return cmd
+
+
 parser = argparse.ArgumentParser(description="Run one configured fit, or submit all manifest rows as Slurm chunks.")
 parser.add_argument("--all-objects", action="store_true", help="Submit every manifest row as chunked Slurm arrays.")
+parser.add_argument("--compare-backends", action="store_true", help="Run one object through both JAXSEDFit and external GRAHSP.")
 parser.add_argument("--sampler", choices=("optax+nuts", "ns"), default="optax+nuts")
 parser.add_argument(
     "--output-dir",
@@ -191,6 +238,15 @@ parser.add_argument(
     help="Single-object output directory, or all-object output base directory. Defaults to the configured hpc_outputs path.",
 )
 parser.add_argument("--dry-run", action="store_true")
+parser.add_argument("--progress-bar", action="store_true", help="Show fitter progress bars in single comparison mode.")
+parser.add_argument("--object-id", default=COMPARE_OBJECT_ID, help="Object id for --compare-backends.")
+parser.add_argument("--n-wave", type=int, default=COMPARE_N_WAVE, help="JAXSEDFit wavelength grid size for --compare-backends.")
+parser.add_argument("--nuts-warmup", type=int, default=NUTS_WARMUP, help="NUTS warmup draws for --compare-backends.")
+parser.add_argument("--nuts-samples", type=int, default=NUTS_SAMPLES, help="NUTS posterior draws for --compare-backends.")
+parser.add_argument("--nuts-chains", type=int, default=NUTS_CHAINS, help="NUTS chains for --compare-backends.")
+parser.add_argument("--skip-jaxsedfit", action="store_true", help="With --compare-backends, do not run JAXSEDFit.")
+parser.add_argument("--skip-grahsp", action="store_true", help="With --compare-backends, do not run external GRAHSP.")
+parser.add_argument("--skip-jaxsedfit-plots", action="store_true", help="With --compare-backends, skip JAXSEDFit sed/corner/trace PDFs.")
 parser.add_argument("--ns-resamples", type=int, default=NS_RESAMPLES)
 parser.add_argument("--backend", choices=("jaxsedfit", "jaxsed", "grahspj", "grahsp"), default=ALL_OBJECTS_BACKEND)
 parser.add_argument("--job-name", default=ALL_OBJECTS_JOB_NAME)
@@ -205,7 +261,12 @@ parser.add_argument("--mem-per-cpu", default=SLURM_MEM_PER_CPU)
 parser.add_argument("--conda-env", default=SLURM_CONDA_ENV)
 args = parser.parse_args()
 
-if args.all_objects:
+if args.all_objects and args.compare_backends:
+    raise SystemExit("--all-objects and --compare-backends cannot be used together.")
+
+if args.compare_backends:
+    cmd = _build_comparison_command(args)
+elif args.all_objects:
     cmd = _build_all_objects_command(args)
 else:
     output_dir = args.output_dir if args.output_dir is not None else _sampler_output_dir(args.sampler)

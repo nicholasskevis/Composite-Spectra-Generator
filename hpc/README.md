@@ -19,6 +19,7 @@ Example dry runs:
 python hpc/run.xsh --dry-run
 python hpc/run.xsh --all-objects --dry-run
 python hpc/run.xsh --all-objects --backend grahsp --dry-run
+python hpc/run.xsh --compare-backends --dry-run
 ```
 
 Example submission:
@@ -50,4 +51,41 @@ Backfill the extra CSVs and update the result JSONs with:
 python hpc/backfill_grahsp_notebook_outputs.py \
   --output-dir hpc_outputs/loglbol_mass_retrieval/<run_name> \
   --manifest fit_manifest.csv
+```
+
+## Single-Object JAXSEDFit vs GRAHSP Comparison
+
+Notebook 11 is also available as a non-interactive HPC script:
+
+```bash
+python hpc/run.xsh \
+  --compare-backends \
+  --object-id 030750.73+004852.8_376768_0.0003 \
+  --n-wave 512 \
+  --progress-bar
+```
+
+This writes one folder under:
+
+```text
+hpc_outputs/loglbol_mass_retrieval/grahsp_vs_jaxsedfit_single/
+```
+
+Each run folder contains `jaxsedfit_result.json`, `grahsp_result.json`, `comparison_summary.json`, the JAXSEDFit PDFs, the GRAHSP work/artifact folders, and `grahsp_vs_jaxsedfit_sed.png` when both backends complete.
+
+For a quick path/manifest check on the login node:
+
+```bash
+python hpc/run.xsh --compare-backends --dry-run
+```
+
+For a very short smoke test, run the comparison script directly with reduced sampler settings:
+
+```bash
+python hpc/run_grahsp_jaxsedfit_comparison.py \
+  --object-id 030750.73+004852.8_376768_0.0003 \
+  --nuts-warmup 100 \
+  --nuts-samples 100 \
+  --grahsp-live-points 200 \
+  --grahsp-posterior-samples 500
 ```
