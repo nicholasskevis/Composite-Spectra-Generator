@@ -59,16 +59,45 @@ def _load_manifest_tasks(manifest: Path) -> list[dict[str, str]]:
     return tasks
 
 
-def _load_spectrum_ids(spectra_manifest: Path) -> set[str]:
+def _resolve_spectrum_path(spectra_manifest: Path, row: dict[str, str]) -> Path | None:
+    raw_path = Path(row.get("spectrum_path", "")).expanduser()
+    base_dir = spectra_manifest.parent.resolve()
+    candidates: list[Path] = []
+    if raw_path.is_absolute():
+        candidates.append(raw_path.resolve())
+    else:
+        candidates.append((base_dir / raw_path).resolve())
+    parts = raw_path.parts
+    if "all_chimera_notebook6_spectra" in parts:
+        idx = parts.index("all_chimera_notebook6_spectra")
+        rel = Path(*parts[idx + 1 :])
+        if rel.parts:
+            candidates.append((base_dir / rel).resolve())
+    candidates.extend(
+        [
+            (base_dir / raw_path.name).resolve(),
+            (base_dir / "spectra" / raw_path.name).resolve(),
+        ]
+    )
+    return next((path for path in candidates if path.is_file()), None)
+
+
+def _load_spectrum_ids(spectra_manifest: Path) -> tuple[set[str], int]:
     with open(spectra_manifest, "r", encoding="utf-8", newline="") as fh:
         reader = csv.DictReader(fh)
         if reader.fieldnames is None or "chimera_id" not in reader.fieldnames:
             raise RuntimeError(f"Spectra manifest must contain chimera_id: {spectra_manifest}")
-        return {
-            str(row["chimera_id"]).strip()
-            for row in reader
-            if str(row.get("chimera_id", "")).strip() and row.get("status", "success") == "success"
-        }
+        ids = set()
+        missing_files = 0
+        for row in reader:
+            chimera_id = str(row.get("chimera_id", "")).strip()
+            if not chimera_id or row.get("status", "success") != "success":
+                continue
+            if _resolve_spectrum_path(spectra_manifest, row) is None:
+                missing_files += 1
+                continue
+            ids.add(chimera_id)
+        return ids, missing_files
 
 
 def _task_stem(task: dict[str, str]) -> str:
@@ -283,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError(f"{label} not found: {path}")
 
     tasks = _load_manifest_tasks(manifest)
-    spectrum_ids = _load_spectrum_ids(spectra_manifest)
+    spectrum_ids, missing_spectrum_files = _load_spectrum_ids(spectra_manifest)
     selected = [task for task in tasks if task["object_id"] in spectrum_ids]
     if not selected:
         raise RuntimeError("No manifest rows have matching notebook-6 spectra.")
@@ -307,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Manifest rows: {len(tasks)}")
     print(f"Rows with notebook-6 spectra: {len(selected) + skipped_existing}")
     print(f"Rows without notebook-6 spectra: {selected_without_spectrum}")
+    print(f"Spectra manifest rows with missing ECSV files: {missing_spectrum_files}")
     if args.only_missing:
         print(f"Selected missing rows: {len(selected)}")
         print(f"Skipped existing rows: {skipped_existing}")

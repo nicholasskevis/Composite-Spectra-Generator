@@ -343,11 +343,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only-missing", action="store_true", help="Submit only rows without existing result/failure JSONs in the selected run directory.")
     parser.add_argument("--rerun-failures", action="store_true", help="With --only-missing, include rows that already have failure JSONs.")
     parser.add_argument("--job-name", default="nicholas", help="Label appended to the timestamped Slurm job and run directory name.")
-    parser.add_argument("--partition", default="day_amd")
+    parser.add_argument("--partition", default="day")
     parser.add_argument("--time", default="02:00:00", dest="time_limit")
     parser.add_argument("--cpus-per-task", type=int, default=1)
     parser.add_argument("--mem-per-cpu", default="8g")
-    parser.add_argument("--conda-env", default="nicholas")
+    parser.add_argument("--conda-env", default="jaxsedfit")
     parser.add_argument(
         "--backend",
         choices=("jaxsedfit", "jaxsed", "grahspj", "grahsp"),

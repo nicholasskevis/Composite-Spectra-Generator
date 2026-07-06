@@ -27,9 +27,34 @@ def _load_spectra_manifest(path: Path) -> dict[str, dict[str, str]]:
 
 def _resolve_spectrum_path(spectra_manifest: Path, row: dict[str, str]) -> Path:
     raw_path = Path(row["spectrum_path"]).expanduser()
+    base_dir = spectra_manifest.parent.resolve()
+    candidates: list[Path] = []
     if raw_path.is_absolute():
-        return raw_path.resolve()
-    return (spectra_manifest.parent / raw_path).resolve()
+        candidates.append(raw_path.resolve())
+    else:
+        candidates.append((base_dir / raw_path).resolve())
+
+    parts = raw_path.parts
+    if "all_chimera_notebook6_spectra" in parts:
+        idx = parts.index("all_chimera_notebook6_spectra")
+        rel = Path(*parts[idx + 1 :])
+        if rel.parts:
+            candidates.append((base_dir / rel).resolve())
+
+    candidates.extend(
+        [
+            (base_dir / raw_path.name).resolve(),
+            (base_dir / "spectra" / raw_path.name).resolve(),
+        ]
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    searched = "\n  ".join(str(path) for path in candidates)
+    raise FileNotFoundError(
+        "Could not resolve notebook-6 spectrum path from spectra manifest. "
+        f"Manifest value was {row.get('spectrum_path')!r}. Searched:\n  {searched}"
+    )
 
 
 def _load_notebook6_spectrum(path: Path, *, min_valid_pixels: int) -> tuple[Any, dict[str, Any]]:
