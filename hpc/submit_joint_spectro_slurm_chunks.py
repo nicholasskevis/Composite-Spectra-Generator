@@ -201,7 +201,7 @@ EXPECTED_COUNT={expected_count}
 CONDA_ENV={shlex.quote(conda_env)}
 RUNNER={shlex.quote(str(runner))}
 
-mkdir -p "${{OUTPUT_DIR}}/logs" "${{OUTPUT_DIR}}/results" "${{OUTPUT_DIR}}/failures" "${{OUTPUT_DIR}}/sed_pdfs" "${{OUTPUT_DIR}}/corner_pdfs" "${{OUTPUT_DIR}}/trace_pdfs"
+mkdir -p "${{OUTPUT_DIR}}/logs" "${{OUTPUT_DIR}}/results" "${{OUTPUT_DIR}}/failures" "${{OUTPUT_DIR}}/sed_pdfs" "${{OUTPUT_DIR}}/sed_csvs" "${{OUTPUT_DIR}}/corner_pdfs" "${{OUTPUT_DIR}}/trace_pdfs"
 cd "${{PROJECT_ROOT}}"
 
 module reset
@@ -318,7 +318,7 @@ def main(argv: list[str] | None = None) -> int:
         raise RuntimeError("No manifest rows have matching notebook-6 spectra.")
     selected_without_spectrum = len(tasks) - len(selected)
 
-    for subdir in ("logs", "results", "failures", "sed_pdfs", "corner_pdfs", "trace_pdfs", "slurm_tasks"):
+    for subdir in ("logs", "results", "failures", "sed_pdfs", "sed_csvs", "corner_pdfs", "trace_pdfs", "slurm_tasks"):
         (output_dir / subdir).mkdir(parents=True, exist_ok=True)
     if args.only_missing:
         selected, skipped_existing = _filter_missing_tasks(selected, output_dir, rerun_failures=args.rerun_failures)

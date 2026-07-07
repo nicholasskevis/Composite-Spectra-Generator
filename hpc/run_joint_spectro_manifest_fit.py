@@ -241,6 +241,92 @@ def _sample_percentiles(samples: Any) -> tuple[float, float, float]:
     return float(p16), float(p50), float(p84)
 
 
+def _predictive_array(pred: dict[str, Any], key: str) -> np.ndarray | None:
+    if key not in pred:
+        return None
+    arr = np.asarray(pred[key], dtype=float)
+    if arr.size == 0:
+        return None
+    return arr
+
+
+def _predictive_median(pred: dict[str, Any], key: str) -> np.ndarray | None:
+    arr = _predictive_array(pred, key)
+    if arr is None:
+        return None
+    if arr.ndim == 0:
+        return np.asarray([float(arr)], dtype=float)
+    if arr.ndim == 1:
+        return arr
+    return np.nanmedian(arr.reshape((-1, arr.shape[-1])), axis=0)
+
+
+def _predictive_percentile(pred: dict[str, Any], key: str, percentile: float) -> np.ndarray | None:
+    arr = _predictive_array(pred, key)
+    if arr is None:
+        return None
+    if arr.ndim <= 1:
+        return np.asarray(arr, dtype=float)
+    return np.nanpercentile(arr.reshape((-1, arr.shape[-1])), percentile, axis=0)
+
+
+def _to_mjy(wave_angstrom: np.ndarray, flux_lambda: np.ndarray | None) -> np.ndarray | None:
+    if flux_lambda is None:
+        return None
+    wave_angstrom = np.asarray(wave_angstrom, dtype=float)
+    flux_lambda = np.asarray(flux_lambda, dtype=float)
+    if flux_lambda.shape != wave_angstrom.shape:
+        return None
+    return 1.0e-10 / 299792458.0 * 1.0e29 * wave_angstrom * wave_angstrom * flux_lambda
+
+
+def _write_joint_sed_csv(fitter: Any, output_path: Path) -> None:
+    pred = fitter.predict()
+    wave = _predictive_median(pred, "obs_wave")
+    if wave is None or wave.ndim != 1 or wave.size == 0:
+        raise RuntimeError("Predictive output does not contain a usable obs_wave grid for SED CSV export.")
+
+    columns: dict[str, Any] = {"wavelength_angstrom": wave}
+    component_keys = {
+        "total": "total_obs_sed",
+        "host_stellar": "host_obs_sed",
+        "host_dust": "dust_obs_sed",
+        "nebular": "nebular_continuum_obs_sed",
+        "nebular_lines": "nebular_lines_obs_sed",
+        "agn_total": "agn_obs_sed",
+        "agn_disk": "disk_obs_sed",
+        "agn_torus": "torus_obs_sed",
+        "agn_feii": "feii_obs_sed",
+        "agn_lines_broad": "line_bl_obs_sed",
+        "agn_lines_narrow": "line_nl_obs_sed",
+        "agn_lines_liner": "line_liner_obs_sed",
+        "balmer_continuum": "balmer_obs_sed",
+    }
+    for label, key in component_keys.items():
+        median = _to_mjy(wave, _predictive_median(pred, key))
+        if median is None:
+            continue
+        columns[f"{label}_mjy"] = median
+        lo = _to_mjy(wave, _predictive_percentile(pred, key, 16.0))
+        hi = _to_mjy(wave, _predictive_percentile(pred, key, 84.0))
+        if lo is not None and hi is not None:
+            columns[f"{label}_p16_mjy"] = lo
+            columns[f"{label}_p84_mjy"] = hi
+
+    table = Table(columns)
+    table.meta.update(
+        {
+            "format": "jaxsedfit joint photometry+spectroscopy SED export",
+            "wave_unit": "Angstrom",
+            "flux_unit": "mJy",
+            "object_id": str(fitter.config.observation.object_id),
+            "redshift": float(fitter.config.observation.redshift),
+        }
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    table.write(output_path, format="ascii.csv", overwrite=True)
+
+
 def _run_joint_fit(row: dict[str, Any], args: argparse.Namespace, spectrum_path: Path) -> dict[str, Any]:
     _, build_chimera_fit_config, fitter_cls = manifest_fit._load_backend(args.backend)
     cfg = build_chimera_fit_config(row, dsps_ssp_fn=str(args.dsps_ssp_fn))
@@ -257,6 +343,8 @@ def _run_joint_fit(row: dict[str, Any], args: argparse.Namespace, spectrum_path:
     if args.save_sed_pdf:
         args.sed_pdf_path.parent.mkdir(parents=True, exist_ok=True)
         fitter.plot_sed(output_path=args.sed_pdf_path)
+    if args.save_sed_csv:
+        _write_joint_sed_csv(fitter, args.sed_csv_path)
     if args.save_corner_pdf:
         args.corner_pdf_path.parent.mkdir(parents=True, exist_ok=True)
         fitter.plot_corner(output_path=args.corner_pdf_path)
@@ -293,6 +381,8 @@ def _run_joint_fit(row: dict[str, Any], args: argparse.Namespace, spectrum_path:
         "spectrum_systematics_width": float(args.spectrum_systematics_width),
         "phot_systematics_width": float(args.phot_systematics_width),
         "scale_prior_sigma_dex": float(args.scale_prior_sigma_dex),
+        "sed_pdf_path": str(args.sed_pdf_path) if args.save_sed_pdf else "",
+        "sed_csv_path": str(args.sed_csv_path) if args.save_sed_csv else "",
         **spectrum_payload,
     }
     return payload
@@ -346,7 +436,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-spectral-smart-priors", action="store_true")
     parser.add_argument("--no-spectral-feii", action="store_true")
     parser.add_argument("--no-spectral-balmer-continuum", action="store_true")
-    parser.add_argument("--save-sed-pdf", action="store_true")
+    parser.add_argument("--save-sed-pdf", dest="save_sed_pdf", action="store_true", default=True)
+    parser.add_argument("--no-save-sed-pdf", dest="save_sed_pdf", action="store_false")
+    parser.add_argument("--save-sed-csv", dest="save_sed_csv", action="store_true", default=True)
+    parser.add_argument("--no-save-sed-csv", dest="save_sed_csv", action="store_false")
     parser.add_argument("--save-corner-pdf", action="store_true")
     parser.add_argument("--save-trace-pdf", action="store_true")
     parser.add_argument("--progress-bar", action="store_true")
@@ -371,6 +464,7 @@ def main(argv: list[str] | None = None) -> int:
     success_path = args.output_dir / "results" / f"{stem}.json"
     failure_path = args.output_dir / "failures" / f"{stem}.json"
     args.sed_pdf_path = args.output_dir / "sed_pdfs" / f"{stem}.pdf"
+    args.sed_csv_path = args.output_dir / "sed_csvs" / f"{stem}_sed.csv"
     args.corner_pdf_path = args.output_dir / "corner_pdfs" / f"{stem}.pdf"
     args.trace_pdf_path = args.output_dir / "trace_pdfs" / f"{stem}.pdf"
 
