@@ -3,7 +3,10 @@ from __future__ import annotations
 import argparse
 import csv
 import importlib
+import importlib.util
 import json
+import os
+import sys
 import traceback
 from pathlib import Path
 from typing import Any
@@ -12,6 +15,49 @@ import numpy as np
 from astropy.table import Table
 
 import run_manifest_fit as manifest_fit
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _candidate_jaxqsofit_paths(project_root: Path) -> list[Path]:
+    bases = []
+    for base in (project_root.parent, Path.home(), *project_root.parents):
+        if base not in bases:
+            bases.append(base)
+
+    candidates: list[Path] = []
+    for base in bases:
+        candidates.extend(
+            [
+                base / "jaxqsofit" / "src",
+                base / "jaxqsofit" / "jaxqsofit" / "src",
+                base / "GRAHSP" / "jaxqsofit" / "src",
+                base / "GRAHSP" / "jaxqsofit" / "jaxqsofit" / "src",
+                base / "GRAHSP_my" / "jaxqsofit" / "src",
+                base / "GRAHSP_my" / "jaxqsofit" / "jaxqsofit" / "src",
+            ]
+        )
+    return candidates
+
+
+def _ensure_jaxqsofit_on_path(project_root: Path) -> list[str]:
+    if importlib.util.find_spec("jaxqsofit") is not None:
+        return []
+
+    added = []
+    for path in _candidate_jaxqsofit_paths(project_root):
+        if not (path / "jaxqsofit").is_dir():
+            continue
+        path_str = str(path.resolve())
+        if path_str not in sys.path:
+            sys.path.insert(0, path_str)
+            added.append(path_str)
+
+    if added:
+        existing = os.environ.get("PYTHONPATH")
+        os.environ["PYTHONPATH"] = os.pathsep.join([*added, existing] if existing else added)
+    return added
 
 
 def _load_spectra_manifest(path: Path) -> dict[str, dict[str, str]]:
@@ -104,6 +150,13 @@ def _load_notebook6_spectrum(path: Path, *, min_valid_pixels: int) -> tuple[Any,
 
 
 def _configure_joint_fit(cfg: Any, args: argparse.Namespace, spectrum: Any) -> None:
+    added_jaxqsofit_paths = _ensure_jaxqsofit_on_path(PROJECT_ROOT)
+    if added_jaxqsofit_paths:
+        print(
+            "[joint-fit] added jaxqsofit PYTHONPATH entries: "
+            + os.pathsep.join(added_jaxqsofit_paths),
+            flush=True,
+        )
     config = importlib.import_module("jaxsedfit.config")
     spectroscopy_config_cls = getattr(config, "SpectroscopyConfig")
     jaxqsofit_config_cls = getattr(config, "JaxQSOFitConfig")
