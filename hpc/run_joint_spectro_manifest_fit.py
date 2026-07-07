@@ -18,6 +18,7 @@ import run_manifest_fit as manifest_fit
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+AGN_BOLOMETRIC_CORRECTION_5100 = 9.26
 
 
 def _candidate_jaxqsofit_paths(project_root: Path) -> list[Path]:
@@ -213,6 +214,15 @@ def _configure_joint_fit(cfg: Any, args: argparse.Namespace, spectrum: Any) -> N
     try:
         import numpyro.distributions as dist
 
+        if args.chimera_agn_prior:
+            log_lbol_chimera = float(args.loglbol_chimera)
+            if np.isfinite(log_lbol_chimera):
+                lbol_w = 10.0**log_lbol_chimera * 1.0e-7
+                log_amp_loc = np.log(lbol_w / AGN_BOLOMETRIC_CORRECTION_5100)
+                cfg.prior_config.agn.log_amp = dist.Normal(
+                    loc=float(log_amp_loc),
+                    scale=float(args.chimera_agn_prior_sigma_dex) * np.log(10.0),
+                )
         cfg.prior_config.agn.log_broad_line_width_kms = dist.TruncatedNormal(
             loc=np.log(float(args.broad_line_width_kms)),
             scale=0.4,
@@ -336,6 +346,7 @@ def _run_joint_fit(row: dict[str, Any], args: argparse.Namespace, spectrum_path:
         spectrum_path,
         min_valid_pixels=args.min_valid_spectral_pixels,
     )
+    args.loglbol_chimera = float(row["logLbol_chimera"])
     _configure_joint_fit(cfg, args, spectrum)
 
     fitter = fitter_cls(cfg)
@@ -381,6 +392,8 @@ def _run_joint_fit(row: dict[str, Any], args: argparse.Namespace, spectrum_path:
         "spectrum_systematics_width": float(args.spectrum_systematics_width),
         "phot_systematics_width": float(args.phot_systematics_width),
         "scale_prior_sigma_dex": float(args.scale_prior_sigma_dex),
+        "chimera_agn_prior": bool(args.chimera_agn_prior),
+        "chimera_agn_prior_sigma_dex": float(args.chimera_agn_prior_sigma_dex),
         "sed_pdf_path": str(args.sed_pdf_path) if args.save_sed_pdf else "",
         "sed_csv_path": str(args.sed_csv_path) if args.save_sed_csv else "",
         **spectrum_payload,
@@ -419,6 +432,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--spectrum-systematics-width", type=float, default=0.08)
     parser.add_argument("--spectrum-student-t-df", type=float, default=5.0)
     parser.add_argument("--scale-prior-sigma-dex", type=float, default=0.4)
+    parser.add_argument("--chimera-agn-prior", dest="chimera_agn_prior", action="store_true", default=True)
+    parser.add_argument("--no-chimera-agn-prior", dest="chimera_agn_prior", action="store_false")
+    parser.add_argument("--chimera-agn-prior-sigma-dex", type=float, default=0.5)
     parser.add_argument("--phot-systematics-width", type=float, default=0.08)
     parser.add_argument("--line-flux-scale-mjy", type=float, default=0.1)
     parser.add_argument("--min-valid-spectral-pixels", type=int, default=50)
