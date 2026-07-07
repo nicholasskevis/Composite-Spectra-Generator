@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import importlib
+import inspect
 import json
 import traceback
 from pathlib import Path
@@ -144,6 +145,19 @@ def _fit_result_summary(fit_result: Any) -> Any:
     return summary
 
 
+def _call_fit_compat(fitter: Any, **kwargs: Any) -> Any:
+    """Call fit() with only the keywords supported by the installed backend."""
+    signature = inspect.signature(fitter.fit)
+    parameters = signature.parameters
+    accepts_var_kwargs = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values())
+    if accepts_var_kwargs:
+        return fitter.fit(**kwargs)
+
+    supported = {name for name, param in parameters.items() if param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)}
+    fit_kwargs = {key: value for key, value in kwargs.items() if key in supported}
+    return fitter.fit(**fit_kwargs)
+
+
 def _load_manifest(path: Path) -> list[dict[str, str]]:
     with open(path, "r", encoding="utf-8", newline="") as fh:
         return list(csv.DictReader(fh))
@@ -203,8 +217,9 @@ def _run_fit(
     cfg.inference.seed = int(args.seed_base + row["fit_index"])
     cfg.inference.method = args.sampler
     fitter = fitter_cls(cfg)
-    fit_result = fitter.fit(
-        prior_config=cfg.prior_config,
+    fit_result = _call_fit_compat(
+        fitter,
+        prior_config=getattr(cfg, "prior_config", None),
         dsps_ssp_fn=cfg.galaxy.dsps_ssp_fn,
         optax_steps=args.optax_steps,
         optax_lr=args.optax_lr,
