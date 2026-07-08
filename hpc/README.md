@@ -77,6 +77,7 @@ hpc_outputs/loglbol_mass_retrieval/grahsp_vs_jaxsedfit_single/
 Each run folder contains `jaxsedfit_result.json`, `jaxsedfit_samples.h5`, `grahsp_result.json`, `comparison_summary.json`, the JAXSEDFit PDFs, the external GRAHSP work/artifact folders, and `grahsp_vs_jaxsedfit_sed.png` when both backends complete.
 The comparison PNG titles include the recovered stellar mass above each SED panel.
 If `jaxsedfit_samples.h5` already exists, a later GRAHSP-only run with `--skip-jaxsedfit` will still rebuild the joint PNG after the external GRAHSP side finishes.
+If only `jaxsedfit_result.json` exists, the script falls back to a summary joint PNG: it uses the printed JAXSEDfit mass metadata and observed photometry on the left, but it cannot redraw the JAXSEDfit model SED curves without `jaxsedfit_samples.h5`.
 The GRAHSP side keeps CSV products by default; pass `--keep-grahsp-pdfs` to `hpc/run_grahsp_jaxsedfit_comparison.py` only when you need the original GRAHSP PDF products too.
 
 For a quick path/manifest check on the login node:

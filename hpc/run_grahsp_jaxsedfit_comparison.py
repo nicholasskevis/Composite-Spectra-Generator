@@ -373,6 +373,116 @@ def _plot_side_by_side(output_path: Path, row: dict[str, str], fitter: Any, pred
     plt.close(fig)
 
 
+def _photometry_from_manifest_row(row: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    wave = []
+    flux = []
+    err = []
+    for name in grahsp_runner.CHIMERA_FILTER_NAMES:
+        try:
+            wave.append(float(grahsp_runner.CHIMERA_EFFECTIVE_WAVELENGTHS_A[name]))
+            flux.append(float(row[name]))
+            err.append(float(row[f"{name}_err"]))
+        except KeyError:
+            continue
+    return np.asarray(wave, dtype=float), np.asarray(flux, dtype=float), np.asarray(err, dtype=float)
+
+
+def _plot_summary_side_by_side(output_path: Path, row: dict[str, Any], jax_payload: dict[str, Any], grahsp_payload: dict[str, Any]) -> None:
+    sed_path = grahsp_payload.get("sed_mjy_csv_path")
+    if not sed_path:
+        return
+    grahsp_sed = Table.read(sed_path, format="ascii.csv")
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5.5), sharex=False, sharey=False, layout="constrained")
+    truth_logm = float(row["log_stellar_mass_truth"])
+    phot_wave_a, obs_flux, obs_err = _photometry_from_manifest_row(row)
+    valid_phot = _positive(obs_flux) & np.isfinite(obs_err) & (obs_err > 0.0)
+
+    axes[0].set_axis_off()
+    axes[0].set_title(
+        _mass_title(
+            "JAXSEDFit",
+            float(jax_payload.get("recovered_logm", np.nan)),
+            float(jax_payload.get("logm16", np.nan)),
+            float(jax_payload.get("logm84", np.nan)),
+            truth_logm,
+        )
+    )
+    sed_pdf = jax_payload.get("sed_pdf_path") or "not available"
+    axes[0].text(
+        0.04,
+        0.78,
+        "Using existing JAXSEDFit summary only.\n"
+        "The saved posterior/predictive cache was not present,\n"
+        "so the JAXSEDfit SED curves cannot be redrawn without refitting.\n\n"
+        f"Existing SED PDF:\n{sed_pdf}",
+        transform=axes[0].transAxes,
+        va="top",
+        ha="left",
+        fontsize=10,
+        linespacing=1.35,
+    )
+    if valid_phot.any():
+        inset = axes[0].inset_axes([0.10, 0.10, 0.82, 0.34])
+        inset.errorbar(phot_wave_a[valid_phot], obs_flux[valid_phot], yerr=obs_err[valid_phot], fmt="o", color="#c53030", ms=5, capsize=2)
+        inset.set_xscale("log")
+        inset.set_yscale("log")
+        inset.set_xlabel("Observed-frame wavelength (A)")
+        inset.set_ylabel("Observed flux (mJy)")
+
+    wave_a = np.asarray(grahsp_sed["wavelength"], dtype=float) * 1.0e4
+    y_parts: list[np.ndarray] = []
+    for col, label, color, lw, ls in (
+        ("total", "Model total", "#000000", 2.0, "-"),
+        ("Stellar (attenuated)", "Host stellar", "#2b6cb0", 1.6, "--"),
+        ("Nebular emission", "Nebular emission", "#319795", 1.1, ":"),
+        ("Dust", "Host dust", "#b7791f", 1.5, ":"),
+        ("AGN disk", "AGN disk", "#c05621", 1.2, ":"),
+        ("AGN torus", "Torus", "#805ad5", 1.2, ":"),
+        ("AGN lines", "AGN lines", "#d53f8c", 1.0, ":"),
+    ):
+        if col not in grahsp_sed.colnames:
+            continue
+        values = np.asarray(grahsp_sed[col], dtype=float)
+        if not np.any(_positive(values)):
+            continue
+        y_parts.append(values)
+        axes[1].plot(wave_a, values, color=color, lw=lw, ls=ls, alpha=0.95, label=label)
+    if valid_phot.any():
+        axes[1].errorbar(phot_wave_a[valid_phot], obs_flux[valid_phot], yerr=obs_err[valid_phot], fmt="o", color="#c53030", ms=5, capsize=2, label="Observed photometry")
+        y_parts.extend([obs_flux[valid_phot], obs_err[valid_phot]])
+    axes[1].set_title(
+        _mass_title(
+            "External GRAHSP",
+            float(grahsp_payload.get("recovered_logm", np.nan)),
+            float(grahsp_payload.get("logm16", np.nan)),
+            float(grahsp_payload.get("logm84", np.nan)),
+            truth_logm,
+        )
+    )
+    axes[1].set_xscale("log")
+    axes[1].set_yscale("log")
+    axes[1].set_xlabel("Observed-frame wavelength (A)")
+    axes[1].set_ylabel("Flux density (mJy)")
+    axes[1].set_xlim(1e2, 1e6)
+    axes[1].legend(fontsize=8, ncol=2, loc="best")
+    if y_parts:
+        finite_y = np.concatenate([np.ravel(np.asarray(y, dtype=float)) for y in y_parts])
+        finite_y = finite_y[np.isfinite(finite_y) & (finite_y > 0.0)]
+        if finite_y.size:
+            ymax = float(np.nanmax(finite_y))
+            ymin = float(np.nanmin(finite_y[finite_y >= ymax * 1e-7])) if np.any(finite_y >= ymax * 1e-7) else float(np.nanmin(finite_y))
+            axes[1].set_ylim(ymin * 0.7, ymax * 1.8)
+
+    fig.suptitle(
+        f"{row['object_id']} | z={float(row['redshift']):.4f} | "
+        f"Chimera logM={truth_logm:.3f}"
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run one JAXSEDFit vs external GRAHSP comparison from fit_manifest.csv.")
     parser.add_argument("--manifest", type=Path, default=PROJECT_ROOT / "fit_manifest.csv")
@@ -493,6 +603,10 @@ def main(argv: list[str] | None = None) -> int:
         comparison_plot = str(run_dir / "grahsp_vs_jaxsedfit_sed.png")
         _plot_side_by_side(Path(comparison_plot), raw, fitter, pred, grahsp_payload)
         print(f"[comparison] wrote {comparison_plot}", flush=True)
+    elif jax_payload is not None and grahsp_payload is not None:
+        comparison_plot = str(run_dir / "grahsp_vs_jaxsedfit_sed.png")
+        _plot_summary_side_by_side(Path(comparison_plot), raw, jax_payload, grahsp_payload)
+        print(f"[comparison] wrote summary fallback {comparison_plot}", flush=True)
 
     summary = {
         "status": "success",
