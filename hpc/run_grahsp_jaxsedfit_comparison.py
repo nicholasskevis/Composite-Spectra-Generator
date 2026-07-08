@@ -20,6 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PROJECT_ROOT.parent
 DEFAULT_OBJECT_ID = "022754.38-073455.0_869049_0.0001"
 DEFAULT_N_WAVE = 1024
+JAXSEDFIT_BUNDLE_NAME = "jaxsedfit_samples.h5"
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -47,6 +48,14 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     with path.open("w", encoding="utf-8") as fh:
         json.dump(_json_sanitize(payload), fh, indent=2, sort_keys=True)
         fh.write("\n")
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    if not isinstance(payload, dict):
+        raise ValueError(f"Expected JSON object in {path}")
+    return payload
 
 
 def _safe_id(value: str) -> str:
@@ -154,6 +163,8 @@ def _run_jaxsedfit(row: dict[str, Any], args: argparse.Namespace, output_dir: Pa
         fitter.plot_sed(output_path=paths["sed_pdf_path"])
         fitter.plot_corner(output_path=paths["corner_pdf_path"], max_params=args.corner_max_params)
         fitter.plot_trace(output_path=paths["trace_pdf_path"])
+    if hasattr(fitter, "save"):
+        paths["samples_path"] = str(fitter.save(output_dir / JAXSEDFIT_BUNDLE_NAME))
 
     payload = {
         "status": "success",
@@ -179,6 +190,44 @@ def _run_jaxsedfit(row: dict[str, Any], args: argparse.Namespace, output_dir: Pa
         **paths,
     }
     return payload, fitter, pred
+
+
+def _load_existing_jaxsedfit_for_plot(run_dir: Path) -> tuple[dict[str, Any] | None, Any | None, dict[str, Any] | None]:
+    result_path = run_dir / "jaxsedfit_result.json"
+    if not result_path.is_file():
+        print(f"[comparison] no existing JAXSEDFit result found at {result_path}", flush=True)
+        return None, None, None
+
+    payload = _read_json(result_path)
+    samples_path = Path(str(payload.get("samples_path") or run_dir / JAXSEDFIT_BUNDLE_NAME)).expanduser()
+    if not samples_path.is_absolute():
+        samples_path = (run_dir / samples_path).resolve()
+    if not samples_path.is_file():
+        print(
+            "[comparison] existing JAXSEDFit JSON has no reusable posterior bundle; "
+            f"missing {samples_path}. Re-run the JAXSEDFit side once with the updated script "
+            "to create it, then --skip-jaxsedfit can still make the joint plot.",
+            flush=True,
+        )
+        return payload, None, None
+
+    _, _, fitter_cls = jaxsedfit_runner._load_backend("jaxsedfit")
+    if not hasattr(fitter_cls, "load"):
+        print("[comparison] installed JAXSEDFit backend cannot load saved posterior bundles", flush=True)
+        return payload, None, None
+
+    fitter = fitter_cls.load(samples_path)
+    pred = fitter.predict()
+    print(f"[comparison] loaded existing JAXSEDFit plot cache: {samples_path}", flush=True)
+    return payload, fitter, pred
+
+
+def _load_existing_payload(path: Path, label: str) -> dict[str, Any] | None:
+    if path.is_file():
+        print(f"[comparison] loaded existing {label} result: {path}", flush=True)
+        return _read_json(path)
+    print(f"[comparison] no existing {label} result found at {path}", flush=True)
+    return None
 
 
 def _run_grahsp(row: dict[str, str], args: argparse.Namespace, output_dir: Path) -> dict[str, Any]:
@@ -428,6 +477,7 @@ def main(argv: list[str] | None = None) -> int:
         _write_json(run_dir / "jaxsedfit_result.json", jax_payload)
     else:
         print("[comparison] skipping JAXSEDFit", flush=True)
+        jax_payload, fitter, pred = _load_existing_jaxsedfit_for_plot(run_dir)
 
     grahsp_payload = None
     if not args.skip_grahsp:
@@ -436,11 +486,13 @@ def main(argv: list[str] | None = None) -> int:
         _write_json(run_dir / "grahsp_result.json", grahsp_payload)
     else:
         print("[comparison] skipping external GRAHSP", flush=True)
+        grahsp_payload = _load_existing_payload(run_dir / "grahsp_result.json", "external GRAHSP")
 
     comparison_plot = ""
     if fitter is not None and pred is not None and grahsp_payload is not None:
         comparison_plot = str(run_dir / "grahsp_vs_jaxsedfit_sed.png")
         _plot_side_by_side(Path(comparison_plot), raw, fitter, pred, grahsp_payload)
+        print(f"[comparison] wrote {comparison_plot}", flush=True)
 
     summary = {
         "status": "success",
