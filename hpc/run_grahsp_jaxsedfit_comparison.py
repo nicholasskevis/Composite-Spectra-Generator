@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -262,7 +263,7 @@ def _mass_title(label: str, recovered: float, lo: float, hi: float, truth: float
     values = np.asarray([recovered, lo, hi, truth], dtype=float)
     if not np.all(np.isfinite(values)):
         return label
-    return f"{label}\nrecovered logM={recovered:.3f} (+{hi - recovered:.2f}/-{recovered - lo:.2f}), delta={recovered - truth:+.3f}"
+    return f"{label}\nlogM={recovered:.3f} (+{hi - recovered:.2f}/-{recovered - lo:.2f})\ndelta={recovered - truth:+.3f}"
 
 
 def _plot_side_by_side(output_path: Path, row: dict[str, str], fitter: Any, pred: dict[str, Any], grahsp_payload: dict[str, Any]) -> None:
@@ -393,13 +394,18 @@ def _plot_summary_side_by_side(output_path: Path, row: dict[str, Any], jax_paylo
         return
     grahsp_sed = Table.read(sed_path, format="ascii.csv")
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5.5), sharex=False, sharey=False, layout="constrained")
+    fig = plt.figure(figsize=(16, 7), constrained_layout=True)
+    gs = fig.add_gridspec(1, 2, width_ratios=(1.0, 1.25))
+    left_gs = gs[0].subgridspec(2, 1, height_ratios=(0.52, 0.48), hspace=0.18)
+    ax_text = fig.add_subplot(left_gs[0])
+    ax_phot = fig.add_subplot(left_gs[1])
+    ax_grahsp = fig.add_subplot(gs[1])
     truth_logm = float(row["log_stellar_mass_truth"])
     phot_wave_a, obs_flux, obs_err = _photometry_from_manifest_row(row)
     valid_phot = _positive(obs_flux) & np.isfinite(obs_err) & (obs_err > 0.0)
 
-    axes[0].set_axis_off()
-    axes[0].set_title(
+    ax_text.set_axis_off()
+    ax_text.set_title(
         _mass_title(
             "JAXSEDFit",
             float(jax_payload.get("recovered_logm", np.nan)),
@@ -409,26 +415,29 @@ def _plot_summary_side_by_side(output_path: Path, row: dict[str, Any], jax_paylo
         )
     )
     sed_pdf = jax_payload.get("sed_pdf_path") or "not available"
-    axes[0].text(
-        0.04,
-        0.78,
+    wrapped_pdf = "\n".join(textwrap.wrap(str(sed_pdf), width=76))
+    ax_text.text(
+        0.02,
+        0.88,
         "Using existing JAXSEDFit summary only.\n"
         "The saved posterior/predictive cache was not present,\n"
         "so the JAXSEDfit SED curves cannot be redrawn without refitting.\n\n"
-        f"Existing SED PDF:\n{sed_pdf}",
-        transform=axes[0].transAxes,
+        f"Existing SED PDF:\n{wrapped_pdf}",
+        transform=ax_text.transAxes,
         va="top",
         ha="left",
         fontsize=10,
         linespacing=1.35,
     )
     if valid_phot.any():
-        inset = axes[0].inset_axes([0.10, 0.10, 0.82, 0.34])
-        inset.errorbar(phot_wave_a[valid_phot], obs_flux[valid_phot], yerr=obs_err[valid_phot], fmt="o", color="#c53030", ms=5, capsize=2)
-        inset.set_xscale("log")
-        inset.set_yscale("log")
-        inset.set_xlabel("Observed-frame wavelength (A)")
-        inset.set_ylabel("Observed flux (mJy)")
+        ax_phot.errorbar(phot_wave_a[valid_phot], obs_flux[valid_phot], yerr=obs_err[valid_phot], fmt="o", color="#c53030", ms=5, capsize=2)
+        ax_phot.set_xscale("log")
+        ax_phot.set_yscale("log")
+        ax_phot.set_xlabel("Observed-frame wavelength (A)")
+        ax_phot.set_ylabel("Observed flux (mJy)")
+        ax_phot.set_xlim(1e3, 6e4)
+    else:
+        ax_phot.set_axis_off()
 
     wave_a = np.asarray(grahsp_sed["wavelength"], dtype=float) * 1.0e4
     y_parts: list[np.ndarray] = []
@@ -447,11 +456,11 @@ def _plot_summary_side_by_side(output_path: Path, row: dict[str, Any], jax_paylo
         if not np.any(_positive(values)):
             continue
         y_parts.append(values)
-        axes[1].plot(wave_a, values, color=color, lw=lw, ls=ls, alpha=0.95, label=label)
+        ax_grahsp.plot(wave_a, values, color=color, lw=lw, ls=ls, alpha=0.95, label=label)
     if valid_phot.any():
-        axes[1].errorbar(phot_wave_a[valid_phot], obs_flux[valid_phot], yerr=obs_err[valid_phot], fmt="o", color="#c53030", ms=5, capsize=2, label="Observed photometry")
+        ax_grahsp.errorbar(phot_wave_a[valid_phot], obs_flux[valid_phot], yerr=obs_err[valid_phot], fmt="o", color="#c53030", ms=5, capsize=2, label="Observed photometry")
         y_parts.extend([obs_flux[valid_phot], obs_err[valid_phot]])
-    axes[1].set_title(
+    ax_grahsp.set_title(
         _mass_title(
             "External GRAHSP",
             float(grahsp_payload.get("recovered_logm", np.nan)),
@@ -460,26 +469,26 @@ def _plot_summary_side_by_side(output_path: Path, row: dict[str, Any], jax_paylo
             truth_logm,
         )
     )
-    axes[1].set_xscale("log")
-    axes[1].set_yscale("log")
-    axes[1].set_xlabel("Observed-frame wavelength (A)")
-    axes[1].set_ylabel("Flux density (mJy)")
-    axes[1].set_xlim(1e2, 1e6)
-    axes[1].legend(fontsize=8, ncol=2, loc="best")
+    ax_grahsp.set_xscale("log")
+    ax_grahsp.set_yscale("log")
+    ax_grahsp.set_xlabel("Observed-frame wavelength (A)")
+    ax_grahsp.set_ylabel("Flux density (mJy)")
+    ax_grahsp.set_xlim(1e2, 1e6)
+    ax_grahsp.legend(fontsize=8, ncol=2, loc="best")
     if y_parts:
         finite_y = np.concatenate([np.ravel(np.asarray(y, dtype=float)) for y in y_parts])
         finite_y = finite_y[np.isfinite(finite_y) & (finite_y > 0.0)]
         if finite_y.size:
             ymax = float(np.nanmax(finite_y))
             ymin = float(np.nanmin(finite_y[finite_y >= ymax * 1e-7])) if np.any(finite_y >= ymax * 1e-7) else float(np.nanmin(finite_y))
-            axes[1].set_ylim(ymin * 0.7, ymax * 1.8)
+            ax_grahsp.set_ylim(ymin * 0.7, ymax * 1.8)
 
     fig.suptitle(
         f"{row['object_id']} | z={float(row['redshift']):.4f} | "
         f"Chimera logM={truth_logm:.3f}"
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=180)
+    fig.savefig(output_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
 
 
