@@ -37,8 +37,9 @@ SLURM_CONDA_ENV = "jaxsedfit"
 OPTAX_STEPS = 300
 OPTAX_LR = "1.0e-2"
 TARGET_ACCEPT_PROB = 0.85
-COMPARE_OBJECT_ID = "030750.73+004852.8_376768_0.0003"
-COMPARE_N_WAVE = 512
+COMPARE_OBJECT_ID = "022754.38-073455.0_869049_0.0001"
+COMPARE_N_WAVE = 1024
+COMPARE_GRAHSP_MASS_MAX = 13.0
 SPECTRA_MANIFEST = _root_path(
     "notebook_outputs",
     "all_chimera_notebook6_spectra",
@@ -234,6 +235,8 @@ def _build_comparison_command(args: argparse.Namespace) -> list[str]:
         str(args.nuts_samples),
         "--nuts-chains",
         str(args.nuts_chains),
+        "--grahsp-mass-max",
+        str(args.grahsp_mass_max),
     ]
     if args.dry_run:
         cmd.append("--dry-run")
@@ -339,6 +342,7 @@ parser.add_argument("--n-wave", type=int, default=COMPARE_N_WAVE, help="JAXSEDFi
 parser.add_argument("--nuts-warmup", type=int, default=NUTS_WARMUP, help="NUTS warmup draws for --compare-backends.")
 parser.add_argument("--nuts-samples", type=int, default=NUTS_SAMPLES, help="NUTS posterior draws for --compare-backends.")
 parser.add_argument("--nuts-chains", type=int, default=NUTS_CHAINS, help="NUTS chains for --compare-backends.")
+parser.add_argument("--grahsp-mass-max", type=float, default=COMPARE_GRAHSP_MASS_MAX, help="External GRAHSP mass-max for --compare-backends.")
 parser.add_argument("--skip-jaxsedfit", action="store_true", help="With --compare-backends, do not run JAXSEDFit.")
 parser.add_argument("--skip-grahsp", action="store_true", help="With --compare-backends, do not run external GRAHSP.")
 parser.add_argument("--skip-jaxsedfit-plots", action="store_true", help="With --compare-backends, skip JAXSEDFit sed/corner/trace PDFs.")

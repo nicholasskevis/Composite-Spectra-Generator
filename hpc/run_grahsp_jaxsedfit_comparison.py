@@ -18,7 +18,8 @@ from astropy.table import Table
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PROJECT_ROOT.parent
-DEFAULT_OBJECT_ID = "030750.73+004852.8_376768_0.0003"
+DEFAULT_OBJECT_ID = "022754.38-073455.0_869049_0.0001"
+DEFAULT_N_WAVE = 1024
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -156,6 +157,8 @@ def _run_jaxsedfit(row: dict[str, Any], args: argparse.Namespace, output_dir: Pa
 
     payload = {
         "status": "success",
+        "backend": "jaxsedfit",
+        "fit_method": "jaxsedfit",
         "fit_index": int(row["fit_index"]),
         "object_id": str(row["id"]),
         "COSMOS_ID0": str(row["COSMOS_ID0"]),
@@ -189,6 +192,7 @@ def _run_grahsp(row: dict[str, str], args: argparse.Namespace, output_dir: Path)
         cores=args.grahsp_cores,
         num_live_points=args.grahsp_live_points,
         num_posterior_samples=args.grahsp_posterior_samples,
+        mass_max=args.grahsp_mass_max,
         cache_max=args.grahsp_cache_max,
         keep_pdfs=args.keep_grahsp_pdfs,
     )
@@ -203,6 +207,13 @@ def _run_grahsp(row: dict[str, str], args: argparse.Namespace, output_dir: Path)
 def _positive(y: Any) -> np.ndarray:
     arr = np.asarray(y, dtype=float)
     return np.isfinite(arr) & (arr > 0.0)
+
+
+def _mass_title(label: str, recovered: float, lo: float, hi: float, truth: float) -> str:
+    values = np.asarray([recovered, lo, hi, truth], dtype=float)
+    if not np.all(np.isfinite(values)):
+        return label
+    return f"{label}\nrecovered logM={recovered:.3f} (+{hi - recovered:.2f}/-{recovered - lo:.2f}), delta={recovered - truth:+.3f}"
 
 
 def _plot_side_by_side(output_path: Path, row: dict[str, str], fitter: Any, pred: dict[str, Any], grahsp_payload: dict[str, Any]) -> None:
@@ -228,6 +239,9 @@ def _plot_side_by_side(output_path: Path, row: dict[str, str], fitter: Any, pred
     obs_err = np.asarray(fitter.config.photometry.errors, dtype=float)
     model_flux = _median_site(pred, "pred_fluxes")
     y_parts.extend([obs_flux, model_flux])
+    truth_logm = float(row["log_stellar_mass_truth"])
+    jax_samples = np.asarray(fitter.samples["log_stellar_mass"], dtype=float).reshape(-1)
+    jax_logm16, jax_recovered_logm, jax_logm84 = np.percentile(jax_samples, [16.0, 50.0, 84.0])
 
     labels_seen = set()
     for keys, label, color, lw in _COMPONENT_STYLE:
@@ -255,7 +269,7 @@ def _plot_side_by_side(output_path: Path, row: dict[str, str], fitter: Any, pred
         axes[0].plot(obs_wave_a, component, color=color, lw=lw, ls=ls, alpha=0.9, label=plot_label)
     axes[0].errorbar(phot_wave_a, obs_flux, yerr=obs_err, fmt="o", color="#c53030", ms=5, capsize=2, label="Observed photometry")
     axes[0].scatter(phot_wave_a, model_flux, color="#111111", marker="s", s=28, label="Model photometry")
-    axes[0].set_title("JAXSEDFit")
+    axes[0].set_title(_mass_title("JAXSEDFit", jax_recovered_logm, jax_logm16, jax_logm84, truth_logm))
 
     wave_a = np.asarray(grahsp_sed["wavelength"], dtype=float) * 1.0e4
     for col, label, color, lw, ls in (
@@ -275,7 +289,15 @@ def _plot_side_by_side(output_path: Path, row: dict[str, str], fitter: Any, pred
         y_parts.append(values)
         axes[1].plot(wave_a, values, color=color, lw=lw, ls=ls, alpha=0.95, label=label)
     axes[1].errorbar(phot_wave_a, obs_flux, yerr=obs_err, fmt="o", color="#c53030", ms=5, capsize=2, label="Observed photometry")
-    axes[1].set_title("GRAHSP")
+    axes[1].set_title(
+        _mass_title(
+            "External GRAHSP",
+            float(grahsp_payload.get("recovered_logm", np.nan)),
+            float(grahsp_payload.get("logm16", np.nan)),
+            float(grahsp_payload.get("logm84", np.nan)),
+            truth_logm,
+        )
+    )
 
     for ax in axes:
         ax.set_xscale("log")
@@ -310,7 +332,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "hpc_outputs" / "grahsp_vs_jaxsedfit_single")
     parser.add_argument("--dsps-ssp-fn", type=Path, default=PROJECT_ROOT / "tempdata.h5")
     parser.add_argument("--jaxsedfit-root", type=Path, default=None)
-    parser.add_argument("--n-wave", type=int, default=512)
+    parser.add_argument("--n-wave", type=int, default=DEFAULT_N_WAVE)
     parser.add_argument("--sampler", choices=("optax", "nuts", "optax+nuts", "ns"), default="optax+nuts")
     parser.add_argument("--seed-base", type=int, default=20231011)
     parser.add_argument("--optax-steps", type=int, default=400)
@@ -330,6 +352,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--grahsp-cores", type=int, default=1)
     parser.add_argument("--grahsp-live-points", type=int, default=800)
     parser.add_argument("--grahsp-posterior-samples", type=int, default=3000)
+    parser.add_argument(
+        "--grahsp-mass-max",
+        type=float,
+        default=13.0,
+        help="Maximum stellar mass forwarded to external GRAHSP; default matches notebook 13.",
+    )
     parser.add_argument("--grahsp-cache-max", type=int, default=5000)
     parser.add_argument("--keep-grahsp-pdfs", action="store_true", help="Keep and copy GRAHSP PDFs. By default only CSV products are retained.")
     parser.add_argument("--corner-max-params", type=int, default=8)
@@ -369,6 +397,8 @@ def main(argv: list[str] | None = None) -> int:
         "dsps_ssp_fn": args.dsps_ssp_fn,
         "grahsp_sampler_script": args.grahsp_sampler_script,
         "grahsp_cigale_root": args.grahsp_cigale_root,
+        "grahsp_backend": "external_grahsp",
+        "grahsp_mass_max": float(args.grahsp_mass_max),
         "n_wave": int(args.n_wave),
     }
     if args.dry_run:
@@ -420,6 +450,9 @@ def main(argv: list[str] | None = None) -> int:
         "luminosity_bin": raw.get("luminosity_bin", ""),
         "redshift": float(raw["redshift"]),
         "log_stellar_mass_truth": float(raw["log_stellar_mass_truth"]),
+        "jaxsedfit_backend": "jaxsedfit",
+        "grahsp_backend": "external_grahsp",
+        "grahsp_mass_max": float(args.grahsp_mass_max),
         "jaxsedfit": jax_payload,
         "grahsp": grahsp_payload,
         "comparison_plot": comparison_plot,

@@ -58,7 +58,7 @@ def test_pcigale_ini_includes_scaling_limits(tmp_path):
 
     assert "[scaling_limits]" in config
     assert "mass_min = 5" in config
-    assert "mass_max = 15" in config
+    assert "mass_max = 13" in config
     assert "sfr_min = 0" in config
     assert "sfr_max = 100000" in config
     assert "L_min = 38" in config
@@ -92,12 +92,14 @@ def test_grahsp_command_always_requests_plot_summary(tmp_path):
         cores=1,
         num_live_points=800,
         num_posterior_samples=3000,
+        mass_max=13.0,
     )
 
     cmd = run_grahsp_manifest_fit._build_grahsp_command(args)
 
     assert "--plot" in cmd
-    assert "--mass-max" not in cmd
+    assert "--mass-max" in cmd
+    assert cmd[cmd.index("--mass-max") + 1] == "13.0"
 
 
 def test_collect_grahsp_artifacts_copies_standard_outputs(tmp_path):

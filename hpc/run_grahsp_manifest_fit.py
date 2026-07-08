@@ -212,7 +212,7 @@ def _write_grahsp_input_table(row: dict[str, Any], work_dir: Path) -> Path:
     return input_path
 
 
-def _write_pcigale_ini(input_path: Path, work_dir: Path) -> Path:
+def _write_pcigale_ini(input_path: Path, work_dir: Path, *, mass_max: float = 13.0) -> Path:
     column_list = []
     for name in GRAHSP_FILTER_NAMES:
         column_list.extend([name, f"{name}_err"])
@@ -234,7 +234,7 @@ cosmology = concordance
 
 [scaling_limits]
   mass_min = 5
-  mass_max = 15
+  mass_max = {mass_max:g}
   sfr_min = 0
   sfr_max = 100000
   L_min = 38
@@ -362,6 +362,8 @@ def _build_grahsp_command(args: argparse.Namespace) -> list[str]:
         str(args.num_live_points),
         "--num-posterior-samples",
         str(args.num_posterior_samples),
+        "--mass-max",
+        str(args.mass_max),
         "--plot",
     ]
 
@@ -471,7 +473,7 @@ def _run_grahsp(row: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]
     work_dir = args.output_dir / "work" / stem
     work_dir.mkdir(parents=True, exist_ok=True)
     input_path = _write_grahsp_input_table(row, work_dir)
-    config_path = _write_pcigale_ini(input_path, work_dir)
+    config_path = _write_pcigale_ini(input_path, work_dir, mass_max=float(args.mass_max))
 
     cmd = _build_grahsp_command(args)
 
@@ -502,6 +504,7 @@ def _run_grahsp(row: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]
     truth_logm = float(row["log_stellar_mass_truth"])
     payload = {
         "status": "success",
+        "backend": "external_grahsp",
         "fit_index": int(row["fit_index"]),
         "object_id": str(row["id"]),
         "COSMOS_ID0": str(row["COSMOS_ID0"]),
@@ -522,6 +525,7 @@ def _run_grahsp(row: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]
         "config_path": config_path,
         "summary_path": summary_path,
         "fit_method": "grahsp",
+        "mass_max": float(args.mass_max),
         "optax_steps": "",
         "optax_lr": "",
         "nuts_warmup": "",
@@ -567,6 +571,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cores", type=int, default=1)
     parser.add_argument("--num-live-points", type=int, default=800)
     parser.add_argument("--num-posterior-samples", type=int, default=3000)
+    parser.add_argument(
+        "--mass-max",
+        type=float,
+        default=13.0,
+        help="Maximum stellar mass passed to external GRAHSP dualsampler; default matches notebook 13.",
+    )
     parser.add_argument("--cache-max", type=int, default=5000)
     parser.add_argument("--plot", action="store_true")
     parser.add_argument("--keep-pdfs", action="store_true", help="Keep and copy GRAHSP PDF plot products. By default only CSV products are retained.")

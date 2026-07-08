@@ -14,6 +14,7 @@ from pathlib import Path
 DEFAULT_OUTPUT_DIR = Path("hpc_outputs/loglbol_mass_retrieval")
 DEFAULT_GRAHSP_SAMPLER_SCRIPT = Path("../GRAHSP/GRAHSP-run/dualsampler.py")
 DEFAULT_GRAHSP_CIGALE_ROOT = Path("../GRAHSP/GRAHSP")
+DEFAULT_GRAHSP_MASS_MAX = 13.0
 BACKEND_ALIASES = {
     "jaxsed": "grahspj",
     "jaxsedfit": "grahspj",
@@ -166,6 +167,7 @@ def _batch_script(
     grahsp_runner: Path,
     grahsp_sampler_script: Path,
     grahsp_cigale_root: Path,
+    grahsp_mass_max: float,
 ) -> str:
     backend = _normalize_backend(backend)
     log_dir = output_dir / "logs"
@@ -192,6 +194,7 @@ BACKEND={shlex.quote(backend)}
 GRAHSP_RUNNER={shlex.quote(str(grahsp_runner))}
 GRAHSP_SAMPLER_SCRIPT={shlex.quote(str(grahsp_sampler_script))}
 GRAHSP_CIGALE_ROOT={shlex.quote(str(grahsp_cigale_root))}
+GRAHSP_MASS_MAX={grahsp_mass_max:g}
 
 mkdir -p "${{OUTPUT_DIR}}/logs" "${{OUTPUT_DIR}}/results" "${{OUTPUT_DIR}}/failures" "${{OUTPUT_DIR}}/sed_pdfs" "${{OUTPUT_DIR}}/sed_lum_pdfs" "${{OUTPUT_DIR}}/corner_pdfs" "${{OUTPUT_DIR}}/trace_pdfs" "${{OUTPUT_DIR}}/posteriors_pdfs" "${{OUTPUT_DIR}}/derived_pdfs" "${{OUTPUT_DIR}}/sed_csvs" "${{OUTPUT_DIR}}/photometry_csvs"
 cd "${{PROJECT_ROOT}}"
@@ -296,6 +299,7 @@ case "${{BACKEND}}" in
       --cores "${{SLURM_CPUS_PER_TASK:-1}}" \\
       --num-live-points "${{GRAHSP_NUM_LIVE_POINTS:-800}}" \\
       --num-posterior-samples "${{GRAHSP_NUM_POSTERIOR_SAMPLES:-3000}}" \\
+      --mass-max "${{GRAHSP_MASS_MAX}}" \\
       --cache-max "${{GRAHSP_CACHE_MAX:-5000}}"
     ;;
   *)
@@ -357,6 +361,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--grahsp-runner", type=Path, default=Path("hpc/run_grahsp_manifest_fit.py"))
     parser.add_argument("--grahsp-sampler-script", type=Path, default=DEFAULT_GRAHSP_SAMPLER_SCRIPT)
     parser.add_argument("--grahsp-cigale-root", type=Path, default=DEFAULT_GRAHSP_CIGALE_ROOT)
+    parser.add_argument(
+        "--grahsp-mass-max",
+        type=float,
+        default=DEFAULT_GRAHSP_MASS_MAX,
+        help="External GRAHSP mass-max forwarded to dualsampler; default matches notebook 13.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Write task files and print sbatch plans without submitting.")
     args = parser.parse_args(argv)
     args.backend = _normalize_backend(args.backend)
@@ -477,6 +487,7 @@ def main(argv: list[str] | None = None) -> int:
             grahsp_runner=grahsp_runner,
             grahsp_sampler_script=grahsp_sampler_script,
             grahsp_cigale_root=grahsp_cigale_root,
+            grahsp_mass_max=args.grahsp_mass_max,
         )
 
         print(

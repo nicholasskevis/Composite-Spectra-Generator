@@ -103,6 +103,7 @@ def test_batch_script_creates_sed_pdf_directory():
         grahsp_runner=Path("/project/hpc/run_grahsp_manifest_fit.py"),
         grahsp_sampler_script=Path("/project/../sampler/dualsampler.py"),
         grahsp_cigale_root=Path("/project/../cigale"),
+        grahsp_mass_max=13.0,
     )
 
     assert '"${OUTPUT_DIR}/sed_pdfs"' in script
@@ -129,6 +130,7 @@ def test_batch_script_uses_sampler_and_conditional_nested_sampler_args():
         grahsp_runner=Path("/project/hpc/run_grahsp_manifest_fit.py"),
         grahsp_sampler_script=Path("/project/../sampler/dualsampler.py"),
         grahsp_cigale_root=Path("/project/../cigale"),
+        grahsp_mass_max=13.0,
     )
 
     assert "BACKEND=grahspj" in script
@@ -177,6 +179,7 @@ def test_batch_script_routes_grahsp_to_grahsp_runner():
         grahsp_runner=Path("/project/hpc/run_grahsp_manifest_fit.py"),
         grahsp_sampler_script=Path("/project/../sampler/dualsampler.py"),
         grahsp_cigale_root=Path("/project/../cigale"),
+        grahsp_mass_max=13.0,
     )
 
     assert "BACKEND=grahsp" in script
@@ -184,5 +187,6 @@ def test_batch_script_routes_grahsp_to_grahsp_runner():
     assert 'python "${GRAHSP_RUNNER}"' in script
     assert '--fit-index "${FIT_INDEX}"' in script
     assert '--sampler-script "${GRAHSP_SAMPLER_SCRIPT}"' in script
-    assert "--mass-max" not in script
+    assert 'GRAHSP_MASS_MAX=13' in script
+    assert '--mass-max "${GRAHSP_MASS_MAX}"' in script
     assert '--backend grahspj' in script

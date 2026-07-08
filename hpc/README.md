@@ -55,15 +55,16 @@ python hpc/backfill_grahsp_notebook_outputs.py \
 
 By default, external GRAHSP runs now retain the CSV products needed to rebuild SED plots and remove/copy no PDF plot products. This keeps home-directory usage much lower. If you specifically need the GRAHSP PDFs for one run, call `hpc/run_grahsp_manifest_fit.py` directly with `--keep-pdfs`.
 
-## Single-Object JAXSEDFit vs GRAHSP Comparison
+## Single-Object JAXSEDFit vs External GRAHSP Comparison
 
-Notebook 11 is also available as a non-interactive HPC script:
+Notebook 13 is also available as a non-interactive HPC script. The GRAHSP side uses the external GRAHSP runner, not the `grahspj`/JAXSEDFit backend alias:
 
 ```bash
 python hpc/run.xsh \
   --compare-backends \
-  --object-id 030750.73+004852.8_376768_0.0003 \
-  --n-wave 512 \
+  --object-id 022754.38-073455.0_869049_0.0001 \
+  --n-wave 1024 \
+  --grahsp-mass-max 13 \
   --progress-bar
 ```
 
@@ -73,7 +74,8 @@ This writes one folder under:
 hpc_outputs/loglbol_mass_retrieval/grahsp_vs_jaxsedfit_single/
 ```
 
-Each run folder contains `jaxsedfit_result.json`, `grahsp_result.json`, `comparison_summary.json`, the JAXSEDFit PDFs, the GRAHSP work/artifact folders, and `grahsp_vs_jaxsedfit_sed.png` when both backends complete.
+Each run folder contains `jaxsedfit_result.json`, `grahsp_result.json`, `comparison_summary.json`, the JAXSEDFit PDFs, the external GRAHSP work/artifact folders, and `grahsp_vs_jaxsedfit_sed.png` when both backends complete.
+The comparison PNG titles include the recovered stellar mass above each SED panel.
 The GRAHSP side keeps CSV products by default; pass `--keep-grahsp-pdfs` to `hpc/run_grahsp_jaxsedfit_comparison.py` only when you need the original GRAHSP PDF products too.
 
 For a quick path/manifest check on the login node:
@@ -86,7 +88,8 @@ For a very short smoke test, run the comparison script directly with reduced sam
 
 ```bash
 python hpc/run_grahsp_jaxsedfit_comparison.py \
-  --object-id 030750.73+004852.8_376768_0.0003 \
+  --object-id 022754.38-073455.0_869049_0.0001 \
+  --n-wave 1024 \
   --nuts-warmup 100 \
   --nuts-samples 100 \
   --grahsp-live-points 200 \
