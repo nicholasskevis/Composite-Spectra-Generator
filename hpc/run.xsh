@@ -342,7 +342,7 @@ parser.add_argument("--n-wave", type=int, default=COMPARE_N_WAVE, help="JAXSEDFi
 parser.add_argument("--nuts-warmup", type=int, default=NUTS_WARMUP, help="NUTS warmup draws for --compare-backends.")
 parser.add_argument("--nuts-samples", type=int, default=NUTS_SAMPLES, help="NUTS posterior draws for --compare-backends.")
 parser.add_argument("--nuts-chains", type=int, default=NUTS_CHAINS, help="NUTS chains for --compare-backends.")
-parser.add_argument("--grahsp-mass-max", type=float, default=COMPARE_GRAHSP_MASS_MAX, help="External GRAHSP mass-max for --compare-backends.")
+parser.add_argument("--grahsp-mass-max", type=float, default=COMPARE_GRAHSP_MASS_MAX, help="External GRAHSP pcigale.ini mass-max for --compare-backends.")
 parser.add_argument("--skip-jaxsedfit", action="store_true", help="With --compare-backends, do not run JAXSEDFit.")
 parser.add_argument("--skip-grahsp", action="store_true", help="With --compare-backends, do not run external GRAHSP.")
 parser.add_argument("--skip-jaxsedfit-plots", action="store_true", help="With --compare-backends, skip JAXSEDFit sed/corner/trace PDFs.")

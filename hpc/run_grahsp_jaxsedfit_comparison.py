@@ -356,7 +356,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--grahsp-mass-max",
         type=float,
         default=13.0,
-        help="Maximum stellar mass forwarded to external GRAHSP; default matches notebook 13.",
+        help="Maximum stellar mass written to external GRAHSP pcigale.ini; default matches notebook 13.",
     )
     parser.add_argument("--grahsp-cache-max", type=int, default=5000)
     parser.add_argument("--keep-grahsp-pdfs", action="store_true", help="Keep and copy GRAHSP PDFs. By default only CSV products are retained.")

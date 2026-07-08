@@ -362,8 +362,6 @@ def _build_grahsp_command(args: argparse.Namespace) -> list[str]:
         str(args.num_live_points),
         "--num-posterior-samples",
         str(args.num_posterior_samples),
-        "--mass-max",
-        str(args.mass_max),
         "--plot",
     ]
 
@@ -575,7 +573,7 @@ def main(argv: list[str] | None = None) -> int:
         "--mass-max",
         type=float,
         default=13.0,
-        help="Maximum stellar mass passed to external GRAHSP dualsampler; default matches notebook 13.",
+        help="Maximum stellar mass written to pcigale.ini; default matches notebook 13.",
     )
     parser.add_argument("--cache-max", type=int, default=5000)
     parser.add_argument("--plot", action="store_true")

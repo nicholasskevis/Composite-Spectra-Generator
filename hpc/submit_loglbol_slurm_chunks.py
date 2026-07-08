@@ -299,7 +299,6 @@ case "${{BACKEND}}" in
       --cores "${{SLURM_CPUS_PER_TASK:-1}}" \\
       --num-live-points "${{GRAHSP_NUM_LIVE_POINTS:-800}}" \\
       --num-posterior-samples "${{GRAHSP_NUM_POSTERIOR_SAMPLES:-3000}}" \\
-      --mass-max "${{GRAHSP_MASS_MAX}}" \\
       --cache-max "${{GRAHSP_CACHE_MAX:-5000}}"
     ;;
   *)
@@ -365,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
         "--grahsp-mass-max",
         type=float,
         default=DEFAULT_GRAHSP_MASS_MAX,
-        help="External GRAHSP mass-max forwarded to dualsampler; default matches notebook 13.",
+        help="External GRAHSP mass-max written to pcigale.ini; default matches notebook 13.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Write task files and print sbatch plans without submitting.")
     args = parser.parse_args(argv)

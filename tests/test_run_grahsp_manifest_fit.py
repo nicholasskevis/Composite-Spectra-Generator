@@ -98,8 +98,7 @@ def test_grahsp_command_always_requests_plot_summary(tmp_path):
     cmd = run_grahsp_manifest_fit._build_grahsp_command(args)
 
     assert "--plot" in cmd
-    assert "--mass-max" in cmd
-    assert cmd[cmd.index("--mass-max") + 1] == "13.0"
+    assert "--mass-max" not in cmd
 
 
 def test_collect_grahsp_artifacts_copies_standard_outputs(tmp_path):
