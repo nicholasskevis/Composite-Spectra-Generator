@@ -34,7 +34,7 @@ SLURM_CPUS_PER_TASK = 1
 SLURM_MEM_PER_CPU = "8g"
 SLURM_CONDA_ENV = "jaxsedfit"
 
-OPTAX_STEPS = 300
+OPTAX_STEPS = 2000
 OPTAX_LR = "1.0e-2"
 TARGET_ACCEPT_PROB = 0.85
 COMPARE_OBJECT_ID = "022754.38-073455.0_869049_0.0001"
@@ -67,9 +67,9 @@ JOINT_MAX_TREE_DEPTH = 8
 # NUTS settings, used when SAMPLER is "optax+nuts"
 # -----------------------------------------------------------------------------
 
-NUTS_WARMUP = 2000
-NUTS_SAMPLES = 1000
-NUTS_CHAINS = 8
+NUTS_WARMUP = 200
+NUTS_SAMPLES = 100
+NUTS_CHAINS = 1
 
 
 # -----------------------------------------------------------------------------
