@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import itertools
 import json
 import sys
@@ -16,6 +17,7 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 WORKSPACE = HERE.parent
 DEFAULT_JAXSEDFIT_ROOT = WORKSPACE / "grahspj_latest"
+DEFAULT_MANIFEST = HERE / "fit_manifest.csv"
 DEFAULT_CHIMERA_ID = "161651.82+385324.4_507867_0.0003"
 
 
@@ -47,10 +49,34 @@ def _find_dsps_file(jaxsedfit_root: Path, explicit: Path | None) -> Path:
 
 
 def _select_row(rows: Iterable[dict[str, Any]], lookup: str, object_id: str) -> dict[str, Any]:
-    key = "ID_COSMOS" if lookup == "COSMOS_ID" else "id"
+    key = "ID_COSMOS" if lookup == "COSMOS_ID" else "object_id"
     row = next((candidate for candidate in rows if str(candidate[key]) == str(object_id)), None)
     if row is None:
         raise ValueError(f"no Chimera row found with {key}={object_id!r}")
+    return row
+
+
+def _load_manifest_row(
+    manifest: Path, lookup: str, object_id: str, filter_names: Iterable[str]
+) -> dict[str, Any]:
+    with manifest.expanduser().open("r", encoding="utf-8", newline="") as handle:
+        raw = _select_row(csv.DictReader(handle), lookup, object_id)
+    row: dict[str, Any] = {
+        "id": raw["object_id"],
+        "ID_COSMOS": raw["ID_COSMOS"],
+        "COSMOS_ID0": raw["COSMOS_ID0"],
+        "redshift": float(raw["redshift"]),
+        "chimera_QSO_weight": float(raw["chimera_QSO_weight"]),
+        "resample_weight": float(raw["resample_weight"]),
+        "log_stellar_mass_truth": float(raw["log_stellar_mass_truth"]),
+        "logLbol_QSO": float(raw["logLbol_QSO"]),
+        "logLbol_chimera": float(raw["logLbol_chimera"]),
+        "luminosity_bin": raw.get("luminosity_bin", ""),
+        "fit_index": int(raw["fit_index"]),
+    }
+    for name in filter_names:
+        row[name] = float(raw[name])
+        row[f"{name}_err"] = float(raw[f"{name}_err"])
     return row
 
 
@@ -101,6 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lookup", choices=("CHIMERA_ID", "COSMOS_ID"), default="CHIMERA_ID")
     parser.add_argument("--object-id", default=DEFAULT_CHIMERA_ID)
     parser.add_argument("--jaxsedfit-root", type=Path, default=DEFAULT_JAXSEDFIT_ROOT)
+    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--dsps-ssp-fn", type=Path)
     parser.add_argument("--warmup", type=lambda x: _csv_values(x, int), default=[500, 1000])
     parser.add_argument("--samples", type=lambda x: _csv_values(x, int), default=[500, 1000])
@@ -118,9 +145,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     root = args.jaxsedfit_root.expanduser().resolve()
     sys.path.insert(0, str(root / "src"))
-    from jaxsedfit.benchmark import load_chimera_benchmark_dataset
+    from jaxsedfit.benchmark import CHIMERA_FILTER_NAMES
 
-    row = _select_row(load_chimera_benchmark_dataset(root).rows, args.lookup, args.object_id)
+    row = _load_manifest_row(args.manifest, args.lookup, args.object_id, CHIMERA_FILTER_NAMES)
     dsps_ssp_fn = _find_dsps_file(root, args.dsps_ssp_fn)
     grid = _settings_grid(args)
     results = []

@@ -12,7 +12,7 @@ SPEC.loader.exec_module(module)
 
 
 def test_select_row_supports_both_lookup_modes():
-    rows = [{"id": "sky-id", "ID_COSMOS": "42"}]
+    rows = [{"object_id": "sky-id", "ID_COSMOS": "42"}]
     assert module._select_row(rows, "CHIMERA_ID", "sky-id") is rows[0]
     assert module._select_row(rows, "COSMOS_ID", "42") is rows[0]
 
