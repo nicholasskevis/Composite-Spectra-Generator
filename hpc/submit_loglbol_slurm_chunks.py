@@ -168,6 +168,15 @@ def _batch_script(
     grahsp_sampler_script: Path,
     grahsp_cigale_root: Path,
     grahsp_mass_max: float,
+    sampler: str = "optax+nuts",
+    optax_steps: int = 300,
+    optax_lr: float = 1.0e-2,
+    nuts_warmup: int = 500,
+    nuts_samples: int = 300,
+    nuts_chains: int = 1,
+    target_accept_prob: float = 0.85,
+    dense_mass: bool | None = None,
+    max_tree_depth: int | None = None,
 ) -> str:
     backend = _normalize_backend(backend)
     log_dir = output_dir / "logs"
@@ -195,6 +204,15 @@ GRAHSP_RUNNER={shlex.quote(str(grahsp_runner))}
 GRAHSP_SAMPLER_SCRIPT={shlex.quote(str(grahsp_sampler_script))}
 GRAHSP_CIGALE_ROOT={shlex.quote(str(grahsp_cigale_root))}
 GRAHSP_MASS_MAX={grahsp_mass_max:g}
+SAMPLER={shlex.quote(str(sampler))}
+OPTAX_STEPS={optax_steps}
+OPTAX_LR={optax_lr:g}
+NUTS_WARMUP={nuts_warmup}
+NUTS_SAMPLES={nuts_samples}
+NUTS_CHAINS={nuts_chains}
+TARGET_ACCEPT_PROB={target_accept_prob:g}
+DENSE_MASS_ARG={shlex.quote("--dense-mass" if dense_mass is True else "--no-dense-mass" if dense_mass is False else "")}
+MAX_TREE_DEPTH={"" if max_tree_depth is None else int(max_tree_depth)}
 
 mkdir -p "${{OUTPUT_DIR}}/logs" "${{OUTPUT_DIR}}/results" "${{OUTPUT_DIR}}/failures" "${{OUTPUT_DIR}}/sed_pdfs" "${{OUTPUT_DIR}}/sed_lum_pdfs" "${{OUTPUT_DIR}}/corner_pdfs" "${{OUTPUT_DIR}}/trace_pdfs" "${{OUTPUT_DIR}}/posteriors_pdfs" "${{OUTPUT_DIR}}/derived_pdfs" "${{OUTPUT_DIR}}/sed_csvs" "${{OUTPUT_DIR}}/photometry_csvs"
 cd "${{PROJECT_ROOT}}"
@@ -230,7 +248,14 @@ export OMP_NUM_THREADS="${{SLURM_CPUS_PER_TASK:-1}}"
 export MPLCONFIGDIR="${{MPLCONFIGDIR:-${{OUTPUT_DIR}}/matplotlib_cache}}"
 mkdir -p "${{MPLCONFIGDIR}}"
 
-SAMPLER="${{SAMPLER:-optax+nuts}}"
+NUTS_EXTRA_ARGS=()
+if [ -n "${{DENSE_MASS_ARG}}" ]; then
+  NUTS_EXTRA_ARGS+=("${{DENSE_MASS_ARG}}")
+fi
+if [ -n "${{MAX_TREE_DEPTH}}" ]; then
+  NUTS_EXTRA_ARGS+=(--max-tree-depth "${{MAX_TREE_DEPTH}}")
+fi
+
 NS_ARGS=()
 ns_flag_enabled() {{
   case "${{1,,}}" in
@@ -276,12 +301,13 @@ case "${{BACKEND}}" in
       --expected-count "${{EXPECTED_COUNT}}" \\
       --backend grahspj \\
       --sampler "${{SAMPLER}}" \\
-      --optax-steps "${{OPTAX_STEPS:-300}}" \\
-      --optax-lr "${{OPTAX_LR:-1.0e-2}}" \\
-      --nuts-warmup "${{NUTS_WARMUP:-500}}" \\
-      --nuts-samples "${{NUTS_SAMPLES:-300}}" \\
-      --nuts-chains "${{NUTS_CHAINS:-1}}" \\
-      --target-accept-prob "${{TARGET_ACCEPT_PROB:-0.85}}" \\
+      --optax-steps "${{OPTAX_STEPS}}" \\
+      --optax-lr "${{OPTAX_LR}}" \\
+      --nuts-warmup "${{NUTS_WARMUP}}" \\
+      --nuts-samples "${{NUTS_SAMPLES}}" \\
+      --nuts-chains "${{NUTS_CHAINS}}" \\
+      --target-accept-prob "${{TARGET_ACCEPT_PROB}}" \\
+      "${{NUTS_EXTRA_ARGS[@]}}" \\
       "${{NS_ARGS[@]}}"
     ;;
   grahsp)
@@ -351,6 +377,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cpus-per-task", type=int, default=1)
     parser.add_argument("--mem-per-cpu", default="8g")
     parser.add_argument("--conda-env", default="jaxsedfit")
+    parser.add_argument("--sampler", choices=("optax", "nuts", "optax+nuts", "ns"), default="optax+nuts")
+    parser.add_argument("--optax-steps", type=int, default=300)
+    parser.add_argument("--optax-lr", type=float, default=1.0e-2)
+    parser.add_argument("--nuts-warmup", type=int, default=500)
+    parser.add_argument("--nuts-samples", type=int, default=300)
+    parser.add_argument("--nuts-chains", type=int, default=1)
+    parser.add_argument("--target-accept-prob", type=float, default=0.85)
+    parser.add_argument("--dense-mass", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--max-tree-depth", type=int, default=None)
     parser.add_argument(
         "--backend",
         choices=("jaxsedfit", "jaxsed", "grahspj", "grahsp"),
@@ -487,6 +522,15 @@ def main(argv: list[str] | None = None) -> int:
             grahsp_sampler_script=grahsp_sampler_script,
             grahsp_cigale_root=grahsp_cigale_root,
             grahsp_mass_max=args.grahsp_mass_max,
+            sampler=args.sampler,
+            optax_steps=args.optax_steps,
+            optax_lr=args.optax_lr,
+            nuts_warmup=args.nuts_warmup,
+            nuts_samples=args.nuts_samples,
+            nuts_chains=args.nuts_chains,
+            target_accept_prob=args.target_accept_prob,
+            dense_mass=args.dense_mass,
+            max_tree_depth=args.max_tree_depth,
         )
 
         print(

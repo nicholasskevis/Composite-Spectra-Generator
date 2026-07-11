@@ -34,9 +34,11 @@ SLURM_CPUS_PER_TASK = 1
 SLURM_MEM_PER_CPU = "8g"
 SLURM_CONDA_ENV = "jaxsedfit"
 
-OPTAX_STEPS = 2000
-OPTAX_LR = "1.0e-2"
-TARGET_ACCEPT_PROB = 0.85
+OPTAX_STEPS = 500
+OPTAX_LR = "5.0e-3"
+TARGET_ACCEPT_PROB = 0.90
+NUTS_DENSE_MASS = False
+NUTS_MAX_TREE_DEPTH = 8
 COMPARE_OBJECT_ID = "022754.38-073455.0_869049_0.0001"
 COMPARE_N_WAVE = 1024
 COMPARE_GRAHSP_MASS_MAX = 13.0
@@ -67,8 +69,8 @@ JOINT_MAX_TREE_DEPTH = 8
 # NUTS settings, used when SAMPLER is "optax+nuts"
 # -----------------------------------------------------------------------------
 
-NUTS_WARMUP = 200
-NUTS_SAMPLES = 100
+NUTS_WARMUP = 1000
+NUTS_SAMPLES = 500
 NUTS_CHAINS = 1
 
 
@@ -193,7 +195,25 @@ def _build_all_objects_command(args: argparse.Namespace) -> list[str]:
         args.mem_per_cpu,
         "--conda-env",
         args.conda_env,
+        "--sampler",
+        args.sampler,
+        "--optax-steps",
+        str(args.optax_steps),
+        "--optax-lr",
+        str(args.optax_lr),
+        "--nuts-warmup",
+        str(args.nuts_warmup),
+        "--nuts-samples",
+        str(args.nuts_samples),
+        "--nuts-chains",
+        str(args.nuts_chains),
+        "--target-accept-prob",
+        str(args.target_accept_prob),
     ]
+    if args.dense_mass is not None:
+        cmd.append("--dense-mass" if args.dense_mass else "--no-dense-mass")
+    if args.max_tree_depth is not None:
+        cmd.extend(["--max-tree-depth", str(args.max_tree_depth)])
     if args.run_dir is not None:
         cmd.extend(["--run-dir", str(args.run_dir)])
     if args.only_missing:
@@ -328,7 +348,7 @@ parser = argparse.ArgumentParser(description="Run one configured fit, or submit 
 parser.add_argument("--all-objects", action="store_true", help="Submit every manifest row as chunked Slurm arrays.")
 parser.add_argument("--compare-backends", action="store_true", help="Run one object through both JAXSEDFit and external GRAHSP.")
 parser.add_argument("--joint-spectra", action="store_true", help="Run JAXSEDFit jointly on Chimera photometry and notebook-6 spectra.")
-parser.add_argument("--sampler", choices=("optax+nuts", "ns"), default="optax+nuts")
+parser.add_argument("--sampler", choices=("optax", "nuts", "optax+nuts", "ns"), default="optax+nuts")
 parser.add_argument(
     "--output-dir",
     type=Path,
@@ -339,9 +359,13 @@ parser.add_argument("--dry-run", action="store_true")
 parser.add_argument("--progress-bar", action="store_true", help="Show fitter progress bars in single comparison mode.")
 parser.add_argument("--object-id", default=COMPARE_OBJECT_ID, help="Object id for --compare-backends or --joint-spectra.")
 parser.add_argument("--n-wave", type=int, default=COMPARE_N_WAVE, help="JAXSEDFit wavelength grid size for --compare-backends/--joint-spectra.")
+parser.add_argument("--optax-steps", type=int, default=OPTAX_STEPS)
+parser.add_argument("--optax-lr", type=float, default=float(OPTAX_LR))
 parser.add_argument("--nuts-warmup", type=int, default=NUTS_WARMUP, help="NUTS warmup draws for --compare-backends.")
 parser.add_argument("--nuts-samples", type=int, default=NUTS_SAMPLES, help="NUTS posterior draws for --compare-backends.")
 parser.add_argument("--nuts-chains", type=int, default=NUTS_CHAINS, help="NUTS chains for --compare-backends.")
+parser.add_argument("--target-accept-prob", type=float, default=TARGET_ACCEPT_PROB)
+parser.add_argument("--dense-mass", action=argparse.BooleanOptionalAction, default=NUTS_DENSE_MASS)
 parser.add_argument("--grahsp-mass-max", type=float, default=COMPARE_GRAHSP_MASS_MAX, help="External GRAHSP pcigale.ini mass-max for --compare-backends.")
 parser.add_argument("--skip-jaxsedfit", action="store_true", help="With --compare-backends, do not run JAXSEDFit.")
 parser.add_argument("--skip-grahsp", action="store_true", help="With --compare-backends, do not run external GRAHSP.")
@@ -362,7 +386,7 @@ parser.add_argument("--spectra-manifest", type=Path, default=SPECTRA_MANIFEST)
 parser.add_argument("--joint-sampler", choices=("optax", "nuts", "optax+nuts", "ns"), default=JOINT_SAMPLER)
 parser.add_argument("--joint-optax-steps", type=int, default=JOINT_OPTAX_STEPS)
 parser.add_argument("--joint-optax-lr", type=float, default=JOINT_OPTAX_LR)
-parser.add_argument("--max-tree-depth", type=int, default=JOINT_MAX_TREE_DEPTH)
+parser.add_argument("--max-tree-depth", type=int, default=NUTS_MAX_TREE_DEPTH)
 args = parser.parse_args()
 
 if args.joint_spectra:

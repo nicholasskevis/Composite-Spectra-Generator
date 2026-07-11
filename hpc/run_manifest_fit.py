@@ -55,6 +55,11 @@ def _patch_backend_config_compat(cfg: Any) -> None:
         filters.speclite_names = {}
 
 
+def _set_if_present(obj: Any, name: str, value: Any) -> None:
+    if value is not None and hasattr(obj, name):
+        setattr(obj, name, value)
+
+
 def _json_sanitize(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(k): _json_sanitize(v) for k, v in value.items()}
@@ -214,8 +219,18 @@ def _run_fit(
     _, build_chimera_fit_config, fitter_cls = _load_backend(args.backend)
     cfg = build_chimera_fit_config(row, dsps_ssp_fn=str(args.dsps_ssp_fn))
     _patch_backend_config_compat(cfg)
+    dense_mass = getattr(args, "dense_mass", None)
+    max_tree_depth = getattr(args, "max_tree_depth", None)
     cfg.inference.seed = int(args.seed_base + row["fit_index"])
     cfg.inference.method = args.sampler
+    _set_if_present(cfg.inference, "map_steps", int(args.optax_steps))
+    _set_if_present(cfg.inference, "learning_rate", float(args.optax_lr))
+    _set_if_present(cfg.inference, "num_warmup", int(args.nuts_warmup))
+    _set_if_present(cfg.inference, "num_samples", int(args.nuts_samples))
+    _set_if_present(cfg.inference, "num_chains", int(args.nuts_chains))
+    _set_if_present(cfg.inference, "target_accept_prob", float(args.target_accept_prob))
+    _set_if_present(cfg.inference, "dense_mass", dense_mass)
+    _set_if_present(cfg.inference, "max_tree_depth", max_tree_depth)
     fitter = fitter_cls(cfg)
     fit_result = _call_fit_compat(
         fitter,
@@ -226,6 +241,10 @@ def _run_fit(
         nuts_warmup=args.nuts_warmup,
         nuts_samples=args.nuts_samples,
         nuts_chains=args.nuts_chains,
+        dense_mass=dense_mass,
+        nuts_dense_mass=dense_mass,
+        max_tree_depth=max_tree_depth,
+        nuts_max_tree_depth=max_tree_depth,
         ns_live_points=args.ns_live_points,
         ns_max_samples=args.ns_max_samples,
         ns_dlogz=args.ns_dlogz,
@@ -278,6 +297,8 @@ def _run_fit(
         "nuts_warmup": int(args.nuts_warmup),
         "nuts_samples": int(args.nuts_samples),
         "nuts_chains": int(args.nuts_chains),
+        "dense_mass": dense_mass,
+        "max_tree_depth": max_tree_depth,
         "target_accept_prob": float(args.target_accept_prob),
     }
     if args.sampler == "ns" or any(
@@ -336,6 +357,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--nuts-warmup", type=int, default=300)
     parser.add_argument("--nuts-samples", type=int, default=300)
     parser.add_argument("--nuts-chains", type=int, default=1)
+    parser.add_argument("--dense-mass", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--max-tree-depth", type=int, default=None)
     parser.add_argument("--ns-live-points", type=int, default=None)
     parser.add_argument("--ns-max-samples", type=int, default=None)
     parser.add_argument("--ns-dlogz", type=float, default=None)

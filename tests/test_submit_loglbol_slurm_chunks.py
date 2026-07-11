@@ -135,8 +135,21 @@ def test_batch_script_uses_sampler_and_conditional_nested_sampler_args():
 
     assert "BACKEND=grahspj" in script
     assert "--backend grahspj" in script
-    assert 'SAMPLER="${SAMPLER:-optax+nuts}"' in script
+    assert "SAMPLER=optax+nuts" in script
+    assert "OPTAX_STEPS=300" in script
+    assert "OPTAX_LR=0.01" in script
+    assert "NUTS_WARMUP=500" in script
+    assert "NUTS_SAMPLES=300" in script
+    assert "NUTS_CHAINS=1" in script
+    assert "TARGET_ACCEPT_PROB=0.85" in script
     assert '--sampler "${SAMPLER}"' in script
+    assert '--optax-steps "${OPTAX_STEPS}"' in script
+    assert '--optax-lr "${OPTAX_LR}"' in script
+    assert '--nuts-warmup "${NUTS_WARMUP}"' in script
+    assert '--nuts-samples "${NUTS_SAMPLES}"' in script
+    assert '--nuts-chains "${NUTS_CHAINS}"' in script
+    assert '--target-accept-prob "${TARGET_ACCEPT_PROB}"' in script
+    assert '"${NUTS_EXTRA_ARGS[@]}"' in script
     assert "--fit-method" not in script
     assert 'if [ -n "${NS_LIVE_POINTS:-}" ]; then' in script
     assert 'NS_ARGS+=(--ns-live-points "${NS_LIVE_POINTS}")' in script
