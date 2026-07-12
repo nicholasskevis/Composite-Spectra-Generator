@@ -107,3 +107,25 @@ def test_summarize_trials_reports_per_object_and_global_best(tmp_path):
     assert (output_dir / "best_settings_per_object.csv").is_file()
     assert (output_dir / "settings_global_ranking.csv").is_file()
     assert (output_dir / "settings_by_luminosity_bin_ranking.csv").is_file()
+
+
+def test_summarize_trials_reads_slurm_trial_json_files(tmp_path):
+    output_dir = tmp_path / "out"
+    trial_dir = output_dir / "trials"
+    trial_dir.mkdir(parents=True)
+    (trial_dir / "000000_a.json").write_text(json.dumps({
+        "object_id": "a",
+        "luminosity_bin": "L < 42",
+        "settings": {"num_warmup": 100},
+        "status": "success",
+        "absolute_residual_dex": 0.2,
+        "residual_dex": 0.2,
+        "recovered_log_stellar_mass": 10.2,
+        "truth_log_stellar_mass": 10.0,
+        "posterior_16_84": [10.0, 10.4],
+    }), encoding="utf-8")
+
+    summary = module.summarize_trials(output_dir / "trials.jsonl", output_dir, expected_object_count=1)
+
+    assert summary["n_success"] == 1
+    assert summary["best_global_settings"] == {"num_warmup": 100}

@@ -63,6 +63,17 @@ JOINT_NUTS_WARMUP = 250
 JOINT_NUTS_SAMPLES = 250
 JOINT_NUTS_CHAINS = 1
 JOINT_MAX_TREE_DEPTH = 8
+TOP_OUTLIER_OUTPUT_ROOT = _root_path("hpc_outputs", "top_outlier_mcmc_setting_optimization")
+TOP_OUTLIER_JOB_NAME = "top_outlier_mcmc"
+TOP_OUTLIER_LIMIT = 100
+TOP_OUTLIER_MAX_ARRAY_TASKS = 4000
+TOP_OUTLIER_WARMUP = "500,1000"
+TOP_OUTLIER_SAMPLES = "300,500"
+TOP_OUTLIER_TARGET_ACCEPT = "0.8,0.85,0.9,0.95"
+TOP_OUTLIER_DENSE_MASS = "false,true"
+TOP_OUTLIER_TREE_DEPTH = "6,8,10"
+TOP_OUTLIER_MAP_STEPS = "300,500"
+TOP_OUTLIER_LEARNING_RATE = "0.003,0.005"
 
 
 # -----------------------------------------------------------------------------
@@ -344,10 +355,60 @@ def _build_joint_spectra_command(args: argparse.Namespace) -> list[str]:
     return cmd
 
 
+def _build_top_outlier_optimization_command(args: argparse.Namespace) -> list[str]:
+    output_dir = args.output_dir if args.output_dir is not None else TOP_OUTLIER_OUTPUT_ROOT
+    cmd = [
+        "python",
+        str(_root_path("hpc", "submit_top_outlier_mcmc_settings_slurm.py")),
+        "--outliers-csv",
+        str(args.outliers_csv),
+        "--limit",
+        str(args.limit),
+        "--output-dir",
+        str(output_dir),
+        "--job-name",
+        args.job_name,
+        "--max-array-tasks",
+        str(args.max_array_tasks),
+        "--partition",
+        args.partition,
+        "--time",
+        args.time_limit,
+        "--cpus-per-task",
+        str(args.cpus_per_task),
+        "--mem-per-cpu",
+        args.mem_per_cpu,
+        "--conda-env",
+        args.conda_env,
+        "--warmup",
+        args.grid_warmup,
+        "--samples",
+        args.grid_samples,
+        "--target-accept",
+        args.grid_target_accept,
+        "--dense-mass",
+        args.grid_dense_mass,
+        "--tree-depth",
+        args.grid_tree_depth,
+        "--map-steps",
+        args.grid_map_steps,
+        "--learning-rate",
+        args.grid_learning_rate,
+        "--chains",
+        str(args.nuts_chains),
+    ]
+    if args.run_dir is not None:
+        cmd.extend(["--run-dir", str(args.run_dir)])
+    if args.dry_run:
+        cmd.append("--dry-run")
+    return cmd
+
+
 parser = argparse.ArgumentParser(description="Run one configured fit, or submit all manifest rows as Slurm chunks.")
 parser.add_argument("--all-objects", action="store_true", help="Submit every manifest row as chunked Slurm arrays.")
 parser.add_argument("--compare-backends", action="store_true", help="Run one object through both JAXSEDFit and external GRAHSP.")
 parser.add_argument("--joint-spectra", action="store_true", help="Run JAXSEDFit jointly on Chimera photometry and notebook-6 spectra.")
+parser.add_argument("--optimize-top-outliers", action="store_true", help="Submit the top-outlier MCMC settings grid as Slurm arrays.")
 parser.add_argument("--sampler", choices=("optax", "nuts", "optax+nuts", "ns"), default="optax+nuts")
 parser.add_argument(
     "--output-dir",
@@ -383,6 +444,15 @@ parser.add_argument("--cpus-per-task", type=int, default=SLURM_CPUS_PER_TASK)
 parser.add_argument("--mem-per-cpu", default=SLURM_MEM_PER_CPU)
 parser.add_argument("--conda-env", default=SLURM_CONDA_ENV)
 parser.add_argument("--spectra-manifest", type=Path, default=SPECTRA_MANIFEST)
+parser.add_argument("--outliers-csv", type=Path, default=_root_path("top100_mass_retrieval_outliers_per_logLbol_bin.csv"))
+parser.add_argument("--limit", type=int, default=TOP_OUTLIER_LIMIT)
+parser.add_argument("--grid-warmup", default=TOP_OUTLIER_WARMUP)
+parser.add_argument("--grid-samples", default=TOP_OUTLIER_SAMPLES)
+parser.add_argument("--grid-target-accept", default=TOP_OUTLIER_TARGET_ACCEPT)
+parser.add_argument("--grid-dense-mass", default=TOP_OUTLIER_DENSE_MASS)
+parser.add_argument("--grid-tree-depth", default=TOP_OUTLIER_TREE_DEPTH)
+parser.add_argument("--grid-map-steps", default=TOP_OUTLIER_MAP_STEPS)
+parser.add_argument("--grid-learning-rate", default=TOP_OUTLIER_LEARNING_RATE)
 parser.add_argument("--joint-sampler", choices=("optax", "nuts", "optax+nuts", "ns"), default=JOINT_SAMPLER)
 parser.add_argument("--joint-optax-steps", type=int, default=JOINT_OPTAX_STEPS)
 parser.add_argument("--joint-optax-lr", type=float, default=JOINT_OPTAX_LR)
@@ -417,13 +487,23 @@ if args.joint_spectra:
     if args.nuts_chains == NUTS_CHAINS:
         args.nuts_chains = JOINT_NUTS_CHAINS
 
-if sum(bool(x) for x in (args.compare_backends, args.joint_spectra)) > 1:
-    raise SystemExit("--compare-backends and --joint-spectra cannot be used together.")
+if sum(bool(x) for x in (args.compare_backends, args.joint_spectra, args.optimize_top_outliers)) > 1:
+    raise SystemExit("--compare-backends, --joint-spectra, and --optimize-top-outliers cannot be used together.")
 if args.all_objects and args.compare_backends:
     raise SystemExit("--all-objects and --compare-backends cannot be used together.")
 
+if args.optimize_top_outliers:
+    if args.job_name == ALL_OBJECTS_JOB_NAME:
+        args.job_name = TOP_OUTLIER_JOB_NAME
+    if args.max_array_tasks == MAX_ARRAY_TASKS:
+        args.max_array_tasks = TOP_OUTLIER_MAX_ARRAY_TASKS
+    if args.output_dir is None:
+        args.output_dir = TOP_OUTLIER_OUTPUT_ROOT
+
 if args.joint_spectra:
     cmd = _build_joint_spectra_command(args)
+elif args.optimize_top_outliers:
+    cmd = _build_top_outlier_optimization_command(args)
 elif args.compare_backends:
     cmd = _build_comparison_command(args)
 elif args.all_objects:

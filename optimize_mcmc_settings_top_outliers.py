@@ -79,14 +79,24 @@ def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
 
 
 def _read_trials(path: Path) -> list[dict[str, Any]]:
-    if not path.is_file():
-        return []
     records = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            if line.strip():
-                records.append(json.loads(line))
+    if path.is_file():
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    records.append(json.loads(line))
+    trial_dir = path.parent / "trials"
+    if trial_dir.is_dir():
+        for trial_path in sorted(trial_dir.glob("*.json")):
+            records.append(json.loads(trial_path.read_text(encoding="utf-8")))
     return records
+
+
+def _write_trial_json(path: Path, record: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(record, indent=2, sort_keys=True), encoding="utf-8")
+    tmp_path.replace(path)
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -120,6 +130,34 @@ def _settings_grid(args: argparse.Namespace) -> list[dict[str, Any]]:
         args.learning_rate,
     )
     return [dict(zip(names, combination)) for combination in itertools.product(*values)]
+
+
+def build_task_records(args: argparse.Namespace) -> list[dict[str, Any]]:
+    selected = _load_top_outliers(args.outliers_csv, args.limit, args.rank_column)
+    grid = _settings_grid(args)
+    records = []
+    for object_number, outlier in enumerate(selected, start=1):
+        object_id = str(outlier["object_id"])
+        for setting_number, settings in enumerate(grid, start=1):
+            records.append({
+                "task_index": len(records),
+                "object_number": object_number,
+                "setting_number": setting_number,
+                "object_count": len(selected),
+                "settings_count": len(grid),
+                "object_id": object_id,
+                "outlier": outlier,
+                "settings": settings,
+            })
+    return records
+
+
+def _read_task_record(task_file: Path, task_index: int) -> dict[str, Any]:
+    with task_file.expanduser().open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle):
+            if line_number == task_index:
+                return json.loads(line)
+    raise IndexError(f"No task {task_index} in {task_file}")
 
 
 def _run_one_setting(
@@ -288,6 +326,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rerun", action="store_true", help="Rerun trials already present in trials.jsonl.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--summarize-only", action="store_true")
+    parser.add_argument("--task-file", type=Path, help="JSONL task file produced by the Slurm submitter.")
+    parser.add_argument("--task-index", type=int, help="Run exactly one task from --task-file.")
     return parser
 
 
@@ -316,6 +356,47 @@ def main(argv: list[str] | None = None) -> int:
 
     output_dir.mkdir(parents=True, exist_ok=True)
     dsps_ssp_fn = single_object._find_dsps_file(root, args.dsps_ssp_fn)
+
+    if args.task_file is not None or args.task_index is not None:
+        if args.task_file is None or args.task_index is None:
+            raise ValueError("--task-file and --task-index must be supplied together")
+        task = _read_task_record(args.task_file, args.task_index)
+        object_id = str(task["object_id"])
+        settings = task["settings"]
+        outlier = task["outlier"]
+        row = single_object._load_manifest_row(
+            args.manifest, "CHIMERA_ID", object_id, CHIMERA_FILTER_NAMES
+        )
+        base_record = {
+            "task_index": int(task["task_index"]),
+            "object_id": object_id,
+            "fit_index": row.get("fit_index", ""),
+            "luminosity_bin": row.get("luminosity_bin", ""),
+            "truth_log_stellar_mass": float(row["log_stellar_mass_truth"]),
+            "initial_residual_log_ratio": _float_value(outlier, "residual_log_ratio"),
+            "initial_abs_residual_log_ratio": abs(_float_value(outlier, "residual_log_ratio")),
+        }
+        trial_path = output_dir / "trials" / f"{int(task['task_index']):06d}_{object_id}.json"
+        print(
+            f"[{task['object_number']}/{task['object_count']}] {object_id} "
+            f"setting {task['setting_number']}/{task['settings_count']}: {settings}",
+            flush=True,
+        )
+        try:
+            result = _run_one_setting(row, dsps_ssp_fn, settings, args)
+            _write_trial_json(trial_path, {**base_record, **result, "status": "success"})
+        except Exception as exc:
+            full_settings = {**settings, "num_chains": args.chains, "seed": args.seed}
+            _write_trial_json(trial_path, {
+                **base_record,
+                "settings": full_settings,
+                "status": "failed",
+                "error": f"{type(exc).__name__}: {exc}",
+                "traceback": traceback.format_exc(),
+            })
+            raise
+        return 0
+
     completed = set() if args.rerun else _load_existing_trials(trials_path)
 
     for object_number, outlier in enumerate(selected, start=1):
