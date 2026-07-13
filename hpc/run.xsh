@@ -21,9 +21,8 @@ def _root_path(*parts: str) -> Path:
 MANIFEST = _root_path("fit_manifest.csv")
 DSPS_SSP_FN = _root_path("tempdata.h5")
 OBJECT_ID = "013549.53+241149.7_243632_0.0001"
-EXPECTED_COUNT = 13558
 
-OUTPUT_ROOT = _root_path("hpc_outputs", "loglbol_mass_retrieval")
+OUTPUT_ROOT = Path("/home/ns2385/project_pi_pn38/ns2385/grahspj_loglbol_mass_retrieval")
 OUTPUT_LABEL = "manual_single_013549"
 ALL_OBJECTS_JOB_NAME = "chimera_jaxsedfit"
 ALL_OBJECTS_BACKEND = "grahspj"
@@ -122,8 +121,6 @@ def _build_single_object_command(sampler: str, output_dir: Path, dry_run: bool, 
         str(DSPS_SSP_FN),
         "--object-id",
         OBJECT_ID,
-        "--expected-count",
-        str(EXPECTED_COUNT),
         "--sampler",
         sampler,
         "--optax-steps",
@@ -244,8 +241,6 @@ def _build_comparison_command(args: argparse.Namespace) -> list[str]:
         str(MANIFEST),
         "--object-id",
         args.object_id,
-        "--expected-count",
-        str(EXPECTED_COUNT),
         "--output-dir",
         str(args.output_dir if args.output_dir is not None else OUTPUT_ROOT / "grahsp_vs_jaxsedfit_single"),
         "--dsps-ssp-fn",
@@ -345,8 +340,6 @@ def _build_joint_spectra_command(args: argparse.Namespace) -> list[str]:
             *common,
             "--object-id",
             args.object_id,
-            "--expected-count",
-            str(EXPECTED_COUNT),
         ]
     if args.dry_run:
         cmd.append("--dry-run")

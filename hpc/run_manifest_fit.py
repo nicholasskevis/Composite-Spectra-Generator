@@ -343,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", type=Path, default=Path("hpc_outputs/loglbol_mass_retrieval"))
     parser.add_argument("--dsps-ssp-fn", type=Path, default=Path("tempdata.h5"))
     parser.add_argument("--object-id", required=True)
-    parser.add_argument("--expected-count", type=int, default=13558)
+    parser.add_argument("--expected-count", type=int, default=None)
     parser.add_argument("--seed-base", type=int, default=20231011)
     parser.add_argument(
         "--backend",

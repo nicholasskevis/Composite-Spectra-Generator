@@ -496,7 +496,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run one JAXSEDFit vs external GRAHSP comparison from fit_manifest.csv.")
     parser.add_argument("--manifest", type=Path, default=PROJECT_ROOT / "fit_manifest.csv")
     parser.add_argument("--object-id", default=DEFAULT_OBJECT_ID)
-    parser.add_argument("--expected-count", type=int, default=13558)
+    parser.add_argument("--expected-count", type=int, default=None)
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "hpc_outputs" / "grahsp_vs_jaxsedfit_single")
     parser.add_argument("--dsps-ssp-fn", type=Path, default=PROJECT_ROOT / "tempdata.h5")
     parser.add_argument("--jaxsedfit-root", type=Path, default=None)

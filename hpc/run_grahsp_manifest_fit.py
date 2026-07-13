@@ -562,7 +562,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fit-index", type=int, default=None, help="Select an absolute manifest fit_index directly.")
     parser.add_argument("--cosmos-id0", default=None)
     parser.add_argument("--object-id", default=None)
-    parser.add_argument("--expected-count", type=int, default=13558)
+    parser.add_argument("--expected-count", type=int, default=None)
     parser.add_argument("--python-executable", type=Path, default=Path(sys.executable))
     parser.add_argument("--sampler-script", type=Path, default=SAMPLER_SCRIPT)
     parser.add_argument("--cigale-root", type=Path, default=CIGALE_ROOT)
