@@ -119,6 +119,7 @@ def _run_jaxsedfit(row: dict[str, Any], args: argparse.Namespace, output_dir: Pa
     cfg.inference.num_samples = int(args.nuts_samples)
     cfg.inference.num_chains = int(args.nuts_chains)
     cfg.inference.target_accept_prob = float(args.target_accept_prob)
+    _set_if_present(cfg.inference, "dense_mass", args.dense_mass)
     _set_if_present(cfg.inference, "max_tree_depth", int(args.max_tree_depth))
     cfg.inference.ns_num_live_points = args.ns_live_points
     cfg.inference.ns_max_samples = args.ns_max_samples
@@ -127,30 +128,33 @@ def _run_jaxsedfit(row: dict[str, Any], args: argparse.Namespace, output_dir: Pa
 
     fitter = fitter_cls(cfg)
     output_cfg = getattr(cfg, "output", None)
-    if output_cfg is None:
-        fit_result = fitter.fit(
-            prior_config=cfg.prior_config,
-            dsps_ssp_fn=cfg.galaxy.dsps_ssp_fn,
-            optax_steps=args.optax_steps,
-            optax_lr=args.optax_lr,
-            nuts_warmup=args.nuts_warmup,
-            nuts_samples=args.nuts_samples,
-            nuts_chains=args.nuts_chains,
-            ns_live_points=args.ns_live_points,
-            ns_max_samples=args.ns_max_samples,
-            ns_dlogz=args.ns_dlogz,
-            ns_resamples=args.ns_resamples,
-            target_accept_prob=args.target_accept_prob,
-            plot_fig=False,
-            save_fig=False,
-            save_result=False,
-            progress_bar=args.progress_bar,
-        )
-    else:
+    if output_cfg is not None:
         output_cfg.plot_fig = False
         output_cfg.save_fig = False
         output_cfg.save_result = False
-        fit_result = fitter.fit(progress_bar=args.progress_bar)
+    fit_result = jaxsedfit_runner._call_fit_compat(
+        fitter,
+        prior_config=getattr(cfg, "prior_config", None),
+        dsps_ssp_fn=cfg.galaxy.dsps_ssp_fn,
+        optax_steps=args.optax_steps,
+        optax_lr=args.optax_lr,
+        nuts_warmup=args.nuts_warmup,
+        nuts_samples=args.nuts_samples,
+        nuts_chains=args.nuts_chains,
+        dense_mass=args.dense_mass,
+        nuts_dense_mass=args.dense_mass,
+        max_tree_depth=args.max_tree_depth,
+        nuts_max_tree_depth=args.max_tree_depth,
+        ns_live_points=args.ns_live_points,
+        ns_max_samples=args.ns_max_samples,
+        ns_dlogz=args.ns_dlogz,
+        ns_resamples=args.ns_resamples,
+        target_accept_prob=args.target_accept_prob,
+        plot_fig=False,
+        save_fig=False,
+        save_result=False,
+        progress_bar=args.progress_bar,
+    )
     pred = fitter.predict()
     samples = np.asarray(fitter.samples["log_stellar_mass"], dtype=float).reshape(-1)
     logm16, recovered_logm, logm84 = np.percentile(samples, [16.0, 50.0, 84.0])
@@ -187,6 +191,8 @@ def _run_jaxsedfit(row: dict[str, Any], args: argparse.Namespace, output_dir: Pa
         "residual_log_ratio": float(recovered_logm - truth_logm),
         "n_wave": int(args.n_wave),
         "sampler": args.sampler,
+        "dense_mass": bool(args.dense_mass),
+        "max_tree_depth": int(args.max_tree_depth),
         "fit_summary": jaxsedfit_runner._fit_result_summary(fit_result),
         **paths,
     }
@@ -509,6 +515,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--nuts-samples", type=int, default=400)
     parser.add_argument("--nuts-chains", type=int, default=1)
     parser.add_argument("--max-tree-depth", type=int, default=10)
+    parser.add_argument("--dense-mass", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--target-accept-prob", type=float, default=0.85)
     parser.add_argument("--ns-live-points", type=int, default=700)
     parser.add_argument("--ns-max-samples", type=int, default=8000)
@@ -609,11 +616,11 @@ def main(argv: list[str] | None = None) -> int:
 
     comparison_plot = ""
     if fitter is not None and pred is not None and grahsp_payload is not None:
-        comparison_plot = str(run_dir / "grahsp_vs_jaxsedfit_sed.png")
+        comparison_plot = str(run_dir / "grahsp_vs_jaxsedfit_sed.pdf")
         _plot_side_by_side(Path(comparison_plot), raw, fitter, pred, grahsp_payload)
         print(f"[comparison] wrote {comparison_plot}", flush=True)
     elif jax_payload is not None and grahsp_payload is not None:
-        comparison_plot = str(run_dir / "grahsp_vs_jaxsedfit_sed.png")
+        comparison_plot = str(run_dir / "grahsp_vs_jaxsedfit_sed.pdf")
         _plot_summary_side_by_side(Path(comparison_plot), raw, jax_payload, grahsp_payload)
         print(f"[comparison] wrote summary fallback {comparison_plot}", flush=True)
 
