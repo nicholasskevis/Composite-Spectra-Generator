@@ -233,6 +233,13 @@ def _run_fit(
     _set_if_present(cfg.inference, "max_tree_depth", max_tree_depth)
     if args.use_map_init is not None:
         _set_if_present(cfg.inference, "use_map_init", bool(args.use_map_init))
+    if hasattr(cfg, "output"):
+        _set_if_present(cfg.output, "output_dir", str(args.output_dir))
+        _set_if_present(cfg.output, "fig_path", str(sed_pdf_path))
+        _set_if_present(cfg.output, "plot_fig", False)
+        _set_if_present(cfg.output, "save_fig", True)
+        _set_if_present(cfg.output, "save_result", False)
+        _set_if_present(cfg.output, "show_plot", False)
     fitter = fitter_cls(cfg)
     fit_result = _call_fit_compat(
         fitter,
