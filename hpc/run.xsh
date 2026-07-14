@@ -108,7 +108,13 @@ def _sampler_output_dir(sampler: str) -> Path:
     return OUTPUT_ROOT / f"{OUTPUT_LABEL}_{safe_sampler}"
 
 
-def _build_single_object_command(sampler: str, output_dir: Path, dry_run: bool, ns_resamples: int) -> list[str]:
+def _build_single_object_command(
+    sampler: str,
+    output_dir: Path,
+    dry_run: bool,
+    ns_resamples: int,
+    use_map_init: bool | None,
+) -> list[str]:
     cmd = [
         "python",
         str(_root_path("hpc", "run_manifest_fit.py")),
@@ -172,6 +178,8 @@ def _build_single_object_command(sampler: str, output_dir: Path, dry_run: bool, 
 
     if dry_run:
         cmd.append("--dry-run")
+    if use_map_init is not None:
+        cmd.append("--use-map-init" if use_map_init else "--no-use-map-init")
 
     return cmd
 
@@ -222,6 +230,8 @@ def _build_all_objects_command(args: argparse.Namespace) -> list[str]:
         cmd.append("--dense-mass" if args.dense_mass else "--no-dense-mass")
     if args.max_tree_depth is not None:
         cmd.extend(["--max-tree-depth", str(args.max_tree_depth)])
+    if args.use_map_init is not None:
+        cmd.append("--use-map-init" if args.use_map_init else "--no-use-map-init")
     if args.run_dir is not None:
         cmd.extend(["--run-dir", str(args.run_dir)])
     if args.only_missing:
@@ -420,6 +430,12 @@ parser.add_argument("--nuts-samples", type=int, default=NUTS_SAMPLES, help="NUTS
 parser.add_argument("--nuts-chains", type=int, default=NUTS_CHAINS, help="NUTS chains for --compare-backends.")
 parser.add_argument("--target-accept-prob", type=float, default=TARGET_ACCEPT_PROB)
 parser.add_argument("--dense-mass", action=argparse.BooleanOptionalAction, default=NUTS_DENSE_MASS)
+parser.add_argument(
+    "--use-map-init",
+    action=argparse.BooleanOptionalAction,
+    default=None,
+    help="For NUTS/optax+nuts, initialize NUTS from the MAP solution. Use --no-use-map-init for difficult failed objects.",
+)
 parser.add_argument("--grahsp-mass-max", type=float, default=COMPARE_GRAHSP_MASS_MAX, help="External GRAHSP pcigale.ini mass-max for --compare-backends.")
 parser.add_argument("--skip-jaxsedfit", action="store_true", help="With --compare-backends, do not run JAXSEDFit.")
 parser.add_argument("--skip-grahsp", action="store_true", help="With --compare-backends, do not run external GRAHSP.")
@@ -503,7 +519,7 @@ elif args.all_objects:
     cmd = _build_all_objects_command(args)
 else:
     output_dir = args.output_dir if args.output_dir is not None else _sampler_output_dir(args.sampler)
-    cmd = _build_single_object_command(args.sampler, output_dir, args.dry_run, args.ns_resamples)
+    cmd = _build_single_object_command(args.sampler, output_dir, args.dry_run, args.ns_resamples, args.use_map_init)
 
 print("Running:", flush=True)
 print(" ".join(shlex.quote(part) for part in cmd), flush=True)

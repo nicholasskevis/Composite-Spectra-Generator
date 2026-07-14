@@ -177,6 +177,7 @@ def _batch_script(
     target_accept_prob: float = 0.85,
     dense_mass: bool | None = None,
     max_tree_depth: int | None = None,
+    use_map_init: bool | None = None,
 ) -> str:
     backend = _normalize_backend(backend)
     log_dir = output_dir / "logs"
@@ -213,6 +214,7 @@ NUTS_CHAINS={nuts_chains}
 TARGET_ACCEPT_PROB={target_accept_prob:g}
 DENSE_MASS_ARG={shlex.quote("--dense-mass" if dense_mass is True else "--no-dense-mass" if dense_mass is False else "")}
 MAX_TREE_DEPTH={"" if max_tree_depth is None else int(max_tree_depth)}
+USE_MAP_INIT_ARG={shlex.quote("--use-map-init" if use_map_init is True else "--no-use-map-init" if use_map_init is False else "")}
 
 mkdir -p "${{OUTPUT_DIR}}/logs" "${{OUTPUT_DIR}}/results" "${{OUTPUT_DIR}}/failures" "${{OUTPUT_DIR}}/sed_pdfs" "${{OUTPUT_DIR}}/sed_lum_pdfs" "${{OUTPUT_DIR}}/corner_pdfs" "${{OUTPUT_DIR}}/trace_pdfs" "${{OUTPUT_DIR}}/posteriors_pdfs" "${{OUTPUT_DIR}}/derived_pdfs" "${{OUTPUT_DIR}}/sed_csvs" "${{OUTPUT_DIR}}/photometry_csvs"
 cd "${{PROJECT_ROOT}}"
@@ -254,6 +256,9 @@ if [ -n "${{DENSE_MASS_ARG}}" ]; then
 fi
 if [ -n "${{MAX_TREE_DEPTH}}" ]; then
   NUTS_EXTRA_ARGS+=(--max-tree-depth "${{MAX_TREE_DEPTH}}")
+fi
+if [ -n "${{USE_MAP_INIT_ARG}}" ]; then
+  NUTS_EXTRA_ARGS+=("${{USE_MAP_INIT_ARG}}")
 fi
 
 NS_ARGS=()
@@ -386,6 +391,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target-accept-prob", type=float, default=0.85)
     parser.add_argument("--dense-mass", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--max-tree-depth", type=int, default=None)
+    parser.add_argument(
+        "--use-map-init",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Initialize NUTS from the Optax/MAP solution. Use --no-use-map-init to let NumPyro initialize NUTS independently.",
+    )
     parser.add_argument(
         "--backend",
         choices=("jaxsedfit", "jaxsed", "grahspj", "grahsp"),
@@ -531,6 +542,7 @@ def main(argv: list[str] | None = None) -> int:
             target_accept_prob=args.target_accept_prob,
             dense_mass=args.dense_mass,
             max_tree_depth=args.max_tree_depth,
+            use_map_init=args.use_map_init,
         )
 
         print(

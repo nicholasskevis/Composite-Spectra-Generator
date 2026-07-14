@@ -231,6 +231,8 @@ def _run_fit(
     _set_if_present(cfg.inference, "target_accept_prob", float(args.target_accept_prob))
     _set_if_present(cfg.inference, "dense_mass", dense_mass)
     _set_if_present(cfg.inference, "max_tree_depth", max_tree_depth)
+    if args.use_map_init is not None:
+        _set_if_present(cfg.inference, "use_map_init", bool(args.use_map_init))
     fitter = fitter_cls(cfg)
     fit_result = _call_fit_compat(
         fitter,
@@ -245,6 +247,7 @@ def _run_fit(
         nuts_dense_mass=dense_mass,
         max_tree_depth=max_tree_depth,
         nuts_max_tree_depth=max_tree_depth,
+        use_map_init=args.use_map_init,
         ns_live_points=args.ns_live_points,
         ns_max_samples=args.ns_max_samples,
         ns_dlogz=args.ns_dlogz,
@@ -359,6 +362,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--nuts-chains", type=int, default=1)
     parser.add_argument("--dense-mass", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--max-tree-depth", type=int, default=None)
+    parser.add_argument(
+        "--use-map-init",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Initialize NUTS from the Optax/MAP solution. Use --no-use-map-init to let NumPyro initialize NUTS independently.",
+    )
     parser.add_argument("--ns-live-points", type=int, default=None)
     parser.add_argument("--ns-max-samples", type=int, default=None)
     parser.add_argument("--ns-dlogz", type=float, default=None)
