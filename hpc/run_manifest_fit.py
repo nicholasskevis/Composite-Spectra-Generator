@@ -150,6 +150,11 @@ def _fit_result_summary(fit_result: Any) -> Any:
     return summary
 
 
+def _is_nuts_initialization_error(exc: BaseException) -> bool:
+    message = str(exc)
+    return "Cannot find valid initial parameters" in message
+
+
 def _call_fit_compat(fitter: Any, **kwargs: Any) -> Any:
     """Call fit() with only the keywords supported by the installed backend."""
     signature = inspect.signature(fitter.fit)
@@ -231,8 +236,6 @@ def _run_fit(
     _set_if_present(cfg.inference, "target_accept_prob", float(args.target_accept_prob))
     _set_if_present(cfg.inference, "dense_mass", dense_mass)
     _set_if_present(cfg.inference, "max_tree_depth", max_tree_depth)
-    if args.use_map_init is not None:
-        _set_if_present(cfg.inference, "use_map_init", bool(args.use_map_init))
     if hasattr(cfg, "output"):
         _set_if_present(cfg.output, "output_dir", str(args.output_dir))
         _set_if_present(cfg.output, "fig_path", str(sed_pdf_path))
@@ -240,38 +243,58 @@ def _run_fit(
         _set_if_present(cfg.output, "save_fig", True)
         _set_if_present(cfg.output, "save_result", False)
         _set_if_present(cfg.output, "show_plot", False)
-    fitter = fitter_cls(cfg)
-    fit_result = _call_fit_compat(
-        fitter,
-        prior_config=getattr(cfg, "prior_config", None),
-        dsps_ssp_fn=cfg.galaxy.dsps_ssp_fn,
-        optax_steps=args.optax_steps,
-        optax_lr=args.optax_lr,
-        nuts_warmup=args.nuts_warmup,
-        nuts_samples=args.nuts_samples,
-        nuts_chains=args.nuts_chains,
-        dense_mass=dense_mass,
-        nuts_dense_mass=dense_mass,
-        max_tree_depth=max_tree_depth,
-        nuts_max_tree_depth=max_tree_depth,
-        use_map_init=args.use_map_init,
-        ns_live_points=args.ns_live_points,
-        ns_max_samples=args.ns_max_samples,
-        ns_dlogz=args.ns_dlogz,
-        ns_resamples=args.ns_resamples,
-        ns_difficult_model=args.ns_difficult_model,
-        ns_parameter_estimation=args.ns_parameter_estimation,
-        ns_num_parallel_workers=args.ns_num_parallel_workers,
-        ns_init_efficiency_threshold=args.ns_init_efficiency_threshold,
-        ns_max_likelihood_evals=args.ns_max_likelihood_evals,
-        ns_efficiency_threshold=args.ns_efficiency_threshold,
-        target_accept_prob=args.target_accept_prob,
-        plot_fig=False,
-        save_fig=True,
-        fig_path=sed_pdf_path,
-        save_result=False,
-        progress_bar=args.progress_bar,
-    )
+
+    def _fit_once(use_map_init: bool | None) -> tuple[Any, Any]:
+        if use_map_init is not None:
+            _set_if_present(cfg.inference, "use_map_init", bool(use_map_init))
+        fitter = fitter_cls(cfg)
+        fit_result = _call_fit_compat(
+            fitter,
+            prior_config=getattr(cfg, "prior_config", None),
+            dsps_ssp_fn=cfg.galaxy.dsps_ssp_fn,
+            optax_steps=args.optax_steps,
+            optax_lr=args.optax_lr,
+            nuts_warmup=args.nuts_warmup,
+            nuts_samples=args.nuts_samples,
+            nuts_chains=args.nuts_chains,
+            dense_mass=dense_mass,
+            nuts_dense_mass=dense_mass,
+            max_tree_depth=max_tree_depth,
+            nuts_max_tree_depth=max_tree_depth,
+            use_map_init=use_map_init,
+            ns_live_points=args.ns_live_points,
+            ns_max_samples=args.ns_max_samples,
+            ns_dlogz=args.ns_dlogz,
+            ns_resamples=args.ns_resamples,
+            ns_difficult_model=args.ns_difficult_model,
+            ns_parameter_estimation=args.ns_parameter_estimation,
+            ns_num_parallel_workers=args.ns_num_parallel_workers,
+            ns_init_efficiency_threshold=args.ns_init_efficiency_threshold,
+            ns_max_likelihood_evals=args.ns_max_likelihood_evals,
+            ns_efficiency_threshold=args.ns_efficiency_threshold,
+            target_accept_prob=args.target_accept_prob,
+            plot_fig=False,
+            save_fig=True,
+            fig_path=sed_pdf_path,
+            save_result=False,
+            progress_bar=args.progress_bar,
+        )
+        return fitter, fit_result
+
+    initial_use_map_init = True if args.use_map_init is None else bool(args.use_map_init)
+    used_map_init = initial_use_map_init
+    map_init_fallback = False
+    try:
+        fitter, fit_result = _fit_once(initial_use_map_init)
+    except RuntimeError as exc:
+        should_retry = args.sampler == "optax+nuts" and initial_use_map_init and _is_nuts_initialization_error(exc)
+        if not should_retry:
+            raise
+        print("[manifest-fit] MAP-initialized NUTS failed; retrying with NumPyro initialization", flush=True)
+        map_init_fallback = True
+        used_map_init = False
+        fitter, fit_result = _fit_once(False)
+
     fitter.plot_corner(output_path=corner_pdf_path)
     fitter.plot_trace(output_path=trace_pdf_path)
     logm_samples = np.asarray(fitter.samples["log_stellar_mass"], dtype=float).reshape(-1)
@@ -309,6 +332,8 @@ def _run_fit(
         "nuts_chains": int(args.nuts_chains),
         "dense_mass": dense_mass,
         "max_tree_depth": max_tree_depth,
+        "use_map_init": used_map_init,
+        "map_init_fallback": map_init_fallback,
         "target_accept_prob": float(args.target_accept_prob),
     }
     if args.sampler == "ns" or any(
