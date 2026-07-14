@@ -232,6 +232,8 @@ def _build_all_objects_command(args: argparse.Namespace) -> list[str]:
         cmd.extend(["--max-tree-depth", str(args.max_tree_depth)])
     if args.use_map_init is not None:
         cmd.append("--use-map-init" if args.use_map_init else "--no-use-map-init")
+    if args.luminosity_bin is not None:
+        cmd.extend(["--luminosity-bin", args.luminosity_bin])
     if args.run_dir is not None:
         cmd.extend(["--run-dir", str(args.run_dir)])
     if args.only_missing:
@@ -445,6 +447,7 @@ parser.add_argument("--backend", choices=("jaxsedfit", "jaxsed", "grahspj", "gra
 parser.add_argument("--job-name", default=ALL_OBJECTS_JOB_NAME)
 parser.add_argument("--max-array-tasks", type=int, default=MAX_ARRAY_TASKS)
 parser.add_argument("--run-dir", type=Path, default=None, help="Exact existing or new all-object run directory.")
+parser.add_argument("--luminosity-bin", default=None, help="Submit only all-object rows matching this luminosity_bin value, e.g. 'L < 42'.")
 parser.add_argument("--only-missing", action="store_true", help="Submit only rows without an existing result/failure JSON in --run-dir.")
 parser.add_argument("--rerun-failures", action="store_true", help="With --only-missing, include rows that have failure JSONs.")
 parser.add_argument("--partition", default=SLURM_PARTITION)

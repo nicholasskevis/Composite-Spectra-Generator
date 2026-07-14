@@ -77,6 +77,7 @@ def _load_tasks(manifest: Path) -> list[dict[str, str]]:
                 "fit_index": row["fit_index"],
                 "object_id": row["object_id"],
                 "COSMOS_ID0": row["COSMOS_ID0"],
+                "luminosity_bin": row.get("luminosity_bin", ""),
             }
             for row in reader
         ]
@@ -146,6 +147,13 @@ def _filter_missing_tasks(
             continue
         selected.append(task)
     return selected, skipped
+
+
+def _filter_luminosity_bin(tasks: list[dict[str, str]], luminosity_bin: str | None) -> list[dict[str, str]]:
+    if luminosity_bin is None:
+        return tasks
+    target = str(luminosity_bin).strip()
+    return [task for task in tasks if str(task.get("luminosity_bin", "")).strip() == target]
 
 
 def _batch_script(
@@ -374,6 +382,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dsps-ssp-fn", type=Path, default=Path("tempdata.h5"))
     parser.add_argument("--max-array-tasks", type=int, default=4_000)
     parser.add_argument("--run-dir", type=Path, default=None, help="Exact existing or new run directory. Overrides timestamped --output-dir/<run_name>.")
+    parser.add_argument("--luminosity-bin", default=None, help="Submit only manifest rows matching this luminosity_bin value, e.g. 'L < 42'.")
     parser.add_argument("--only-missing", action="store_true", help="Submit only rows without existing result/failure JSONs in the selected run directory.")
     parser.add_argument("--rerun-failures", action="store_true", help="With --only-missing, include rows that already have failure JSONs.")
     parser.add_argument("--job-name", default="nicholas", help="Label appended to the timestamped Slurm job and run directory name.")
@@ -468,6 +477,8 @@ def main(argv: list[str] | None = None) -> int:
     if not tasks:
         raise RuntimeError(f"Manifest contains no rows: {manifest}")
     total_task_count = len(tasks)
+    tasks = _filter_luminosity_bin(tasks, args.luminosity_bin)
+    luminosity_selected_count = len(tasks)
 
     task_dir = output_dir / "slurm_tasks"
     for subdir in (
@@ -492,7 +503,10 @@ def main(argv: list[str] | None = None) -> int:
         skipped_count = 0
 
     if not tasks:
-        print(f"No tasks to submit. Manifest rows: {total_task_count}; skipped existing: {skipped_count}.")
+        print(
+            f"No tasks to submit. Manifest rows: {total_task_count}; "
+            f"selected by luminosity bin: {luminosity_selected_count}; skipped existing: {skipped_count}."
+        )
         return 0
 
     chunks = _chunks(tasks, args.max_array_tasks)
@@ -500,6 +514,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Run name: {run_name}")
     print(f"Output directory: {output_dir}")
     print(f"Manifest rows: {total_task_count}")
+    if args.luminosity_bin is not None:
+        print(f"Selected luminosity_bin={args.luminosity_bin!r}: {luminosity_selected_count}")
     if args.only_missing:
         print(f"Selected missing rows: {len(tasks)}")
         print(f"Skipped existing rows: {skipped_count}")
