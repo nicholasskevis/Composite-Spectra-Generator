@@ -371,9 +371,19 @@ def _truth_payload(row: dict[str, Any]) -> dict[str, Any]:
         if key in row and np.isfinite(row[key]) and np.isfinite(log_weight):
             out[key.replace("_QSO", "_chimera")] = float(row[key] + log_weight)
 
+    # Chimera/GRAHSP input columns store SFR in log10(Msun/yr), not linear SFR.
     if "SFR_MED_GAL" in row and np.isfinite(row["SFR_MED_GAL"]):
-        out["sfr_truth"] = float(row["SFR_MED_GAL"])
-        out["log_sfr_truth"] = float(np.log10(row["SFR_MED_GAL"])) if row["SFR_MED_GAL"] > 0.0 else float("nan")
+        log_sfr_truth = float(row["SFR_MED_GAL"])
+        out["log_sfr_truth"] = log_sfr_truth
+        out["sfr_truth"] = float(10.0**log_sfr_truth)
+    if "SFR_MED_MIN68_GAL" in row and np.isfinite(row["SFR_MED_MIN68_GAL"]):
+        log_sfr16 = float(row["SFR_MED_MIN68_GAL"])
+        out["log_sfr_truth16"] = log_sfr16
+        out["sfr_truth16"] = float(10.0**log_sfr16)
+    if "SFR_MED_MAX68_GAL" in row and np.isfinite(row["SFR_MED_MAX68_GAL"]):
+        log_sfr84 = float(row["SFR_MED_MAX68_GAL"])
+        out["log_sfr_truth84"] = log_sfr84
+        out["sfr_truth84"] = float(10.0**log_sfr84)
     return out
 
 

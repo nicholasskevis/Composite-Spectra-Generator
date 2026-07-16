@@ -8,7 +8,7 @@ from typing import Any
 
 
 DEFAULT_OUTPUT_DIR = Path(
-    "/home/ns2385/project_pi_pn38/ns2385/grahspj_loglbol_mass_retrieval/july7_1948_chimera_grahspj"
+    "home/nicho/GRAHSP_my/My-AGN-research-repository/hpc_outputs/loglbol_mass_retrieval/results"
 )
 
 PREFERRED_SUCCESS_FIELDS = [
@@ -60,7 +60,11 @@ PREFERRED_SUCCESS_FIELDS = [
     "SFR_MED_MIN68_GAL",
     "SFR_MED_MAX68_GAL",
     "sfr_truth",
+    "sfr_truth16",
+    "sfr_truth84",
     "log_sfr_truth",
+    "log_sfr_truth16",
+    "log_sfr_truth84",
     "sfr_current_fit16",
     "sfr_current_fit",
     "sfr_current_fit84",
