@@ -486,6 +486,8 @@ def _run_fit(
 ) -> dict[str, Any]:
     _, build_chimera_fit_config, fitter_cls = _load_backend(args.backend)
     cfg = build_chimera_fit_config(row, dsps_ssp_fn=str(args.dsps_ssp_fn))
+    if args.disable_agn:
+        cfg.agn.fit_agn = False
     _patch_backend_config_compat(cfg)
     dense_mass = getattr(args, "dense_mass", None)
     max_tree_depth = getattr(args, "max_tree_depth", None)
@@ -600,6 +602,8 @@ def _run_fit(
         "fit_summary": _fit_result_summary(fit_result),
         "sampler": args.sampler,
         "backend": _normalize_backend(args.backend),
+        "fit_agn": bool(getattr(cfg.agn, "fit_agn", True)),
+        "disable_agn": bool(args.disable_agn),
         "optax_steps": int(args.optax_steps),
         "optax_lr": float(args.optax_lr),
         "nuts_warmup": int(args.nuts_warmup),
@@ -686,6 +690,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ns-max-likelihood-evals", type=int, default=None)
     parser.add_argument("--ns-efficiency-threshold", type=float, default=None)
     parser.add_argument("--target-accept-prob", type=float, default=0.85)
+    parser.add_argument(
+        "--disable-agn",
+        action="store_true",
+        help="Fit the Chimera photometry with the AGN component switched off; useful for host-only bias tests.",
+    )
     parser.add_argument("--progress-bar", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)

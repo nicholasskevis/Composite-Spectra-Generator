@@ -114,6 +114,7 @@ def _build_single_object_command(
     dry_run: bool,
     ns_resamples: int,
     use_map_init: bool | None,
+    disable_agn: bool,
 ) -> list[str]:
     cmd = [
         "python",
@@ -136,6 +137,8 @@ def _build_single_object_command(
         "--target-accept-prob",
         str(TARGET_ACCEPT_PROB),
     ]
+    if disable_agn:
+        cmd.append("--disable-agn")
 
     if sampler == "optax+nuts":
         cmd.extend(
@@ -232,6 +235,8 @@ def _build_all_objects_command(args: argparse.Namespace) -> list[str]:
         cmd.extend(["--max-tree-depth", str(args.max_tree_depth)])
     if args.use_map_init is not None:
         cmd.append("--use-map-init" if args.use_map_init else "--no-use-map-init")
+    if args.disable_agn:
+        cmd.append("--disable-agn")
     if args.luminosity_bin is not None:
         cmd.extend(["--luminosity-bin", args.luminosity_bin])
     if args.run_dir is not None:
@@ -431,6 +436,7 @@ parser.add_argument("--nuts-warmup", type=int, default=NUTS_WARMUP, help="NUTS w
 parser.add_argument("--nuts-samples", type=int, default=NUTS_SAMPLES, help="NUTS posterior draws for --compare-backends.")
 parser.add_argument("--nuts-chains", type=int, default=NUTS_CHAINS, help="NUTS chains for --compare-backends.")
 parser.add_argument("--target-accept-prob", type=float, default=TARGET_ACCEPT_PROB)
+parser.add_argument("--disable-agn", action="store_true", help="Fit Chimera photometry with the JAXSEDFit AGN component switched off.")
 parser.add_argument("--dense-mass", action=argparse.BooleanOptionalAction, default=NUTS_DENSE_MASS)
 parser.add_argument(
     "--use-map-init",
@@ -522,7 +528,14 @@ elif args.all_objects:
     cmd = _build_all_objects_command(args)
 else:
     output_dir = args.output_dir if args.output_dir is not None else _sampler_output_dir(args.sampler)
-    cmd = _build_single_object_command(args.sampler, output_dir, args.dry_run, args.ns_resamples, args.use_map_init)
+    cmd = _build_single_object_command(
+        args.sampler,
+        output_dir,
+        args.dry_run,
+        args.ns_resamples,
+        args.use_map_init,
+        args.disable_agn,
+    )
 
 print("Running:", flush=True)
 print(" ".join(shlex.quote(part) for part in cmd), flush=True)
