@@ -7,9 +7,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_OUTPUT_DIR = Path(
-    "home/nicho/GRAHSP_my/My-AGN-research-repository/hpc_outputs/loglbol_mass_retrieval/results"
-)
+DEFAULT_OUTPUT_DIR = Path("hpc_outputs/loglbol_mass_retrieval")
 
 PREFERRED_SUCCESS_FIELDS = [
     "fit_index",
