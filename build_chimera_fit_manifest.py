@@ -45,8 +45,25 @@ BASE_FIELDS = [
     "chimera_QSO_weight",
     "resample_weight",
     "log_stellar_mass_truth",
+    "SFR_BEST_GAL",
+    "SFR_MED_GAL",
+    "SFR_MED_MIN68_GAL",
+    "SFR_MED_MAX68_GAL",
+    "SSFR_BEST_GAL",
+    "SSFR_MED_GAL",
+    "SSFR_MED_MIN68_GAL",
+    "SSFR_MED_MAX68_GAL",
     "logLbol_QSO",
     "logLbol_chimera",
+    "logL5100_QSO",
+    "e_logL5100_QSO",
+    "logL5100_chimera",
+    "logL3000_QSO",
+    "e_logL3000_QSO",
+    "logL3000_chimera",
+    "logL1350_QSO",
+    "e_logL1350_QSO",
+    "logL1350_chimera",
     "luminosity_bin",
 ]
 
@@ -63,11 +80,15 @@ PROVENANCE_FIELDS = [
 def _read_fits_by_id(path: Path, columns: list[str]) -> dict[str, dict[str, Any]]:
     with fits.open(path, memmap=True) as hdul:
         data = hdul[1].data
+        available_columns = set(data.names)
         out: dict[str, dict[str, Any]] = {}
         for index in range(len(data)):
             row_id = str(data["id"][index])
             row: dict[str, Any] = {}
             for col in columns:
+                if col not in available_columns:
+                    row[col] = np.nan
+                    continue
                 value = data[col][index]
                 if np.ndim(value) == 0 and hasattr(value, "item"):
                     value = value.item()
@@ -104,11 +125,25 @@ def _load_joined_rows(data_dir: Path, provenance_path: Path | None) -> list[dict
     truth_cols = [
         "id",
         "MASS_MED_GAL",
+        "SFR_BEST_GAL",
+        "SFR_MED_GAL",
+        "SFR_MED_MIN68_GAL",
+        "SFR_MED_MAX68_GAL",
+        "SSFR_BEST_GAL",
+        "SSFR_MED_GAL",
+        "SSFR_MED_MIN68_GAL",
+        "SSFR_MED_MAX68_GAL",
         "resample_weight",
         "chimera_QSO_weight",
         "ID_COSMOS",
         "redshift",
         "logLbol_QSO",
+        "logL5100_QSO",
+        "e_logL5100_QSO",
+        "logL3000_QSO",
+        "e_logL3000_QSO",
+        "logL1350_QSO",
+        "e_logL1350_QSO",
     ]
     phot = _read_fits_by_id(phot_path, phot_cols)
     truth = _read_fits_by_id(truth_path, truth_cols)
@@ -127,6 +162,23 @@ def _load_joined_rows(data_dir: Path, provenance_path: Path | None) -> list[dict
             "log_stellar_mass_truth": float(trow["MASS_MED_GAL"]),
             "logLbol_QSO": float(trow["logLbol_QSO"]),
         }
+        for field in (
+            "SFR_BEST_GAL",
+            "SFR_MED_GAL",
+            "SFR_MED_MIN68_GAL",
+            "SFR_MED_MAX68_GAL",
+            "SSFR_BEST_GAL",
+            "SSFR_MED_GAL",
+            "SSFR_MED_MIN68_GAL",
+            "SSFR_MED_MAX68_GAL",
+            "logL5100_QSO",
+            "e_logL5100_QSO",
+            "logL3000_QSO",
+            "e_logL3000_QSO",
+            "logL1350_QSO",
+            "e_logL1350_QSO",
+        ):
+            row[field] = float(trow[field])
         for name in CHIMERA_FILTER_NAMES:
             column = CHIMERA_FILTER_COLUMN_MAP.get(name, name)
             row[name] = float(prow[column])
@@ -148,6 +200,10 @@ def _select_rows(rows: list[dict[str, Any]], include_over_luminous: bool) -> lis
             continue
         enriched = dict(row)
         enriched["logLbol_chimera"] = float(log_lbol_qso + np.log10(qso_weight))
+        for qso_field in ("logL5100_QSO", "logL3000_QSO", "logL1350_QSO"):
+            qso_lum = float(row.get(qso_field, np.nan))
+            chimera_field = qso_field.replace("_QSO", "_chimera")
+            enriched[chimera_field] = float(qso_lum + np.log10(qso_weight)) if np.isfinite(qso_lum) else np.nan
         rows_with_lbol.append(enriched)
 
     selected = []
@@ -184,8 +240,25 @@ def _rows_in_bin(
             "chimera_QSO_weight": float(row["chimera_QSO_weight"]),
             "resample_weight": float(row["resample_weight"]),
             "log_stellar_mass_truth": float(row["log_stellar_mass_truth"]),
+            "SFR_BEST_GAL": float(row["SFR_BEST_GAL"]),
+            "SFR_MED_GAL": float(row["SFR_MED_GAL"]),
+            "SFR_MED_MIN68_GAL": float(row["SFR_MED_MIN68_GAL"]),
+            "SFR_MED_MAX68_GAL": float(row["SFR_MED_MAX68_GAL"]),
+            "SSFR_BEST_GAL": float(row["SSFR_BEST_GAL"]),
+            "SSFR_MED_GAL": float(row["SSFR_MED_GAL"]),
+            "SSFR_MED_MIN68_GAL": float(row["SSFR_MED_MIN68_GAL"]),
+            "SSFR_MED_MAX68_GAL": float(row["SSFR_MED_MAX68_GAL"]),
             "logLbol_QSO": float(row["logLbol_QSO"]),
             "logLbol_chimera": float(row["logLbol_chimera"]),
+            "logL5100_QSO": float(row["logL5100_QSO"]),
+            "e_logL5100_QSO": float(row["e_logL5100_QSO"]),
+            "logL5100_chimera": float(row["logL5100_chimera"]),
+            "logL3000_QSO": float(row["logL3000_QSO"]),
+            "e_logL3000_QSO": float(row["e_logL3000_QSO"]),
+            "logL3000_chimera": float(row["logL3000_chimera"]),
+            "logL1350_QSO": float(row["logL1350_QSO"]),
+            "e_logL1350_QSO": float(row["e_logL1350_QSO"]),
+            "logL1350_chimera": float(row["logL1350_chimera"]),
             "luminosity_bin": bin_label,
         }
         for name in CHIMERA_FILTER_NAMES:
@@ -228,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     summary_output = args.summary_output.expanduser().resolve()
 
     rows = _select_rows(_load_joined_rows(data_dir, provenance), args.include_over_luminous)
-    if args.expected_count is not None and len(rows) != args.expected_count:
+    if args.expected_count is not None and args.expected_count > 0 and len(rows) != args.expected_count:
         raise RuntimeError(f"Expected {args.expected_count} selected rows, found {len(rows)}.")
 
     include_provenance = bool(provenance and provenance.is_file())

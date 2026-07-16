@@ -32,6 +32,23 @@ SFR_SAMPLE_KEYS = (
     "sfr100",
 )
 
+OPTIONAL_MANIFEST_FLOAT_FIELDS = (
+    "logL5100_QSO",
+    "e_logL5100_QSO",
+    "logL3000_QSO",
+    "e_logL3000_QSO",
+    "logL1350_QSO",
+    "e_logL1350_QSO",
+    "SFR_BEST_GAL",
+    "SFR_MED_GAL",
+    "SFR_MED_MIN68_GAL",
+    "SFR_MED_MAX68_GAL",
+    "SSFR_BEST_GAL",
+    "SSFR_MED_GAL",
+    "SSFR_MED_MIN68_GAL",
+    "SSFR_MED_MAX68_GAL",
+)
+
 
 def _normalize_backend(value: str) -> str:
     try:
@@ -94,6 +111,97 @@ def _sample_percentiles(samples: Any) -> tuple[float, float, float]:
     return float(p16), float(p50), float(p84)
 
 
+def _finite_float(value: Any) -> float:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+    return out if np.isfinite(out) else float("nan")
+
+
+def _optional_float(raw: dict[str, str], key: str) -> float | None:
+    if key not in raw or raw[key] == "":
+        return None
+    value = _finite_float(raw[key])
+    return None if not np.isfinite(value) else value
+
+
+def _percentile_payload(prefix: str, values: Any, *, add_erg_s: bool = False) -> dict[str, float]:
+    p16, p50, p84 = _sample_percentiles(values)
+    out = {
+        f"{prefix}16": p16,
+        prefix: p50,
+        f"{prefix}84": p84,
+    }
+    if add_erg_s:
+        out.update(
+            {
+                f"{prefix}_erg_s16": p16 + 7.0 if np.isfinite(p16) else float("nan"),
+                f"{prefix}_erg_s": p50 + 7.0 if np.isfinite(p50) else float("nan"),
+                f"{prefix}_erg_s84": p84 + 7.0 if np.isfinite(p84) else float("nan"),
+            }
+        )
+    return out
+
+
+def _predictive_or_empty(fitter: Any) -> dict[str, Any]:
+    try:
+        predictive = fitter.predict(kind="photometry")
+    except Exception as exc:
+        return {"predictive_summary_error": f"{type(exc).__name__}: {exc}"}
+    return predictive if isinstance(predictive, dict) else {}
+
+
+def _extract_predictive_summary(fitter: Any) -> dict[str, Any]:
+    predictive = _predictive_or_empty(fitter)
+    if "predictive_summary_error" in predictive:
+        return predictive
+
+    out: dict[str, Any] = {}
+    if "log_agn_bol_luminosity_fit" in predictive:
+        out.update(_percentile_payload("log_agn_bol_luminosity_fit", predictive["log_agn_bol_luminosity_fit"], add_erg_s=True))
+
+    if "log_disk_luminosity_fit" in predictive:
+        out.update(_percentile_payload("log_agn_l5100_fit", predictive["log_disk_luminosity_fit"], add_erg_s=True))
+        lambda_l5100 = np.asarray(predictive["log_disk_luminosity_fit"], dtype=float) + np.log10(5100.0)
+        out.update(_percentile_payload("log_agn_lambda_l5100_fit", lambda_l5100, add_erg_s=True))
+
+    if "fracAGN_5100_fit" in predictive:
+        out.update(_percentile_payload("fracAGN_5100_fit", predictive["fracAGN_5100_fit"]))
+
+    if "log_dust_luminosity_fit" in predictive:
+        out.update(_percentile_payload("log_dust_luminosity_fit", predictive["log_dust_luminosity_fit"], add_erg_s=True))
+
+    if "gal_sfr_table" in predictive:
+        sfr_table = np.asarray(predictive["gal_sfr_table"], dtype=float)
+        if sfr_table.size:
+            current_sfr = sfr_table[..., -1]
+            out.update(_sfr_payload_from_linear("sfr_current_fit", current_sfr))
+            n_recent = min(100, sfr_table.shape[-1])
+            if n_recent > 0:
+                out.update(_sfr_payload_from_linear("sfr_100myr_fit", np.nanmean(sfr_table[..., -n_recent:], axis=-1)))
+
+    return out
+
+
+def _sfr_payload_from_linear(prefix: str, values: Any) -> dict[str, float]:
+    p16, p50, p84 = _sample_percentiles(values)
+    positive = np.asarray(values, dtype=float).reshape(-1)
+    positive = positive[np.isfinite(positive) & (positive > 0.0)]
+    if positive.size:
+        log16, log50, log84 = np.percentile(np.log10(positive), [16.0, 50.0, 84.0])
+    else:
+        log16 = log50 = log84 = float("nan")
+    return {
+        f"{prefix}16": p16,
+        prefix: p50,
+        f"{prefix}84": p84,
+        f"log_{prefix}16": float(log16),
+        f"log_{prefix}": float(log50),
+        f"log_{prefix}84": float(log84),
+    }
+
+
 def _extract_sfr_summary(samples: dict[str, Any]) -> dict[str, Any]:
     if not hasattr(np, "isfinite"):
         return {"sfr_sample_key": None}
@@ -136,6 +244,26 @@ def _extract_sfr_summary(samples: dict[str, Any]) -> dict[str, Any]:
         return out
 
     return {"sfr_sample_key": None}
+
+
+def _truth_payload(row: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    qso_weight = _finite_float(row.get("chimera_QSO_weight"))
+    log_weight = np.log10(qso_weight) if np.isfinite(qso_weight) and qso_weight > 0.0 else float("nan")
+
+    for key in OPTIONAL_MANIFEST_FLOAT_FIELDS:
+        value = row.get(key)
+        if value is not None:
+            out[key] = float(value)
+
+    for key in ("logL5100_QSO", "logL3000_QSO", "logL1350_QSO"):
+        if key in row and np.isfinite(row[key]) and np.isfinite(log_weight):
+            out[key.replace("_QSO", "_chimera")] = float(row[key] + log_weight)
+
+    if "SFR_MED_GAL" in row and np.isfinite(row["SFR_MED_GAL"]):
+        out["sfr_truth"] = float(row["SFR_MED_GAL"])
+        out["log_sfr_truth"] = float(np.log10(row["SFR_MED_GAL"])) if row["SFR_MED_GAL"] > 0.0 else float("nan")
+    return out
 
 
 def _fit_result_summary(fit_result: Any) -> Any:
@@ -189,6 +317,10 @@ def _row_from_manifest(raw: dict[str, str], filter_names: list[str] | tuple[str,
         "luminosity_bin": raw.get("luminosity_bin", ""),
         "fit_index": int(raw["fit_index"]),
     }
+    for key in OPTIONAL_MANIFEST_FLOAT_FIELDS:
+        value = _optional_float(raw, key)
+        if value is not None:
+            row[key] = value
     for name in filter_names:
         row[name] = float(raw[name])
         row[f"{name}_err"] = float(raw[f"{name}_err"])
@@ -301,6 +433,8 @@ def _run_fit(
     logm16, recovered_logm, logm84 = np.percentile(logm_samples, [16.0, 50.0, 84.0])
     truth_logm = float(row["log_stellar_mass_truth"])
     sfr_summary = _extract_sfr_summary(fitter.samples)
+    predictive_summary = _extract_predictive_summary(fitter)
+    truth_summary = _truth_payload(row)
     payload = {
         "status": "success",
         "fit_index": int(row["fit_index"]),
@@ -314,11 +448,13 @@ def _run_fit(
         "logLbol_QSO": float(row["logLbol_QSO"]),
         "logLbol_chimera": float(row["logLbol_chimera"]),
         "luminosity_bin": str(row["luminosity_bin"]),
+        **truth_summary,
         "recovered_logm": float(recovered_logm),
         "logm16": float(logm16),
         "logm84": float(logm84),
         "residual_log_ratio": float(recovered_logm - truth_logm),
         **sfr_summary,
+        **predictive_summary,
         "sed_pdf_path": str(sed_pdf_path),
         "corner_pdf_path": str(corner_pdf_path),
         "trace_pdf_path": str(trace_pdf_path),
