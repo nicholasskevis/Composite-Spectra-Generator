@@ -257,9 +257,19 @@ def _summarize_posterior_parameters(samples: dict[str, Any], *, max_top_level_el
 
 def _predictive_or_empty(fitter: Any) -> dict[str, Any]:
     try:
-        predictive = fitter.predict(kind="photometry")
-    except Exception as exc:
-        return {"predictive_summary_error": f"{type(exc).__name__}: {exc}"}
+        # SFR diagnostics such as gal_sfr_table are component/plot predictive
+        # sites. The lightweight photometry payload intentionally omits them.
+        predictive = fitter.predict(kind="plot")
+    except Exception as plot_exc:
+        try:
+            predictive = fitter.predict(kind="photometry")
+        except Exception as phot_exc:
+            return {
+                "predictive_summary_error": (
+                    f"plot={type(plot_exc).__name__}: {plot_exc}; "
+                    f"photometry={type(phot_exc).__name__}: {phot_exc}"
+                )
+            }
     return predictive if isinstance(predictive, dict) else {}
 
 
