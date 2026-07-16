@@ -83,6 +83,10 @@ PREFERRED_SUCCESS_FIELDS = [
     "sed_pdf_path",
     "corner_pdf_path",
     "trace_pdf_path",
+    "posterior_samples_path",
+    "posterior_samples_format",
+    "posterior_samples_saved_keys",
+    "posterior_samples_skipped_keys",
 ]
 
 PREFERRED_FAILURE_FIELDS = [

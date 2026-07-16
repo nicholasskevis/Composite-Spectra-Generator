@@ -144,6 +144,117 @@ def _percentile_payload(prefix: str, values: Any, *, add_erg_s: bool = False) ->
     return out
 
 
+def _safe_field_name(value: str) -> str:
+    return "".join(ch if ch.isalnum() else "_" for ch in str(value)).strip("_")
+
+
+def _posterior_samples_npz_path(args: argparse.Namespace, row: dict[str, Any]) -> Path:
+    stem = f"{int(row['fit_index']):05d}_COSMOS{_safe_id(str(row['COSMOS_ID0']))}_{_safe_id(str(row['id']))}"
+    return args.output_dir / "posterior_samples" / f"{stem}.npz"
+
+
+def _save_posterior_samples_npz(path: Path, samples: dict[str, Any]) -> tuple[list[str], list[str]]:
+    arrays: dict[str, np.ndarray] = {}
+    skipped: list[str] = []
+    for key, value in samples.items():
+        try:
+            array = np.asarray(value)
+        except Exception:
+            skipped.append(str(key))
+            continue
+        if array.dtype == object:
+            skipped.append(str(key))
+            continue
+        arrays[str(key)] = array
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(path, **arrays)
+    return sorted(arrays), skipped
+
+
+def _summarize_posterior_parameters(samples: dict[str, Any], *, max_top_level_elements: int = 32) -> dict[str, Any]:
+    """Summarize every posterior sample site while preserving arrays in nested JSON.
+
+    The full samples are written separately as an NPZ file. This helper gives the
+    JSON and merged CSV useful 16/50/84 summaries without dropping vector-valued
+    parameters such as SFH weights.
+    """
+    parameter_summary: dict[str, Any] = {}
+    top_level: dict[str, Any] = {}
+    shapes: dict[str, list[int]] = {}
+
+    for key, value in sorted(samples.items(), key=lambda item: str(item[0])):
+        key_str = str(key)
+        safe_key = _safe_field_name(key_str)
+        try:
+            array = np.asarray(value, dtype=float)
+        except (TypeError, ValueError):
+            parameter_summary[key_str] = {"error": "could not convert samples to float"}
+            continue
+
+        shapes[key_str] = list(array.shape)
+        if array.size == 0:
+            parameter_summary[key_str] = {"shape": list(array.shape), "n_draws": 0, "elements": []}
+            continue
+
+        if array.ndim == 0:
+            matrix = array.reshape(1, 1)
+            param_shape: tuple[int, ...] = ()
+        else:
+            matrix = array.reshape(array.shape[0], -1)
+            param_shape = tuple(array.shape[1:])
+
+        elements: list[dict[str, Any]] = []
+        for flat_index in range(matrix.shape[1]):
+            values = matrix[:, flat_index]
+            values = values[np.isfinite(values)]
+            if values.size:
+                p16, p50, p84 = np.percentile(values, [16.0, 50.0, 84.0])
+                element = {
+                    "index": [] if not param_shape else list(np.unravel_index(flat_index, param_shape)),
+                    "n_finite": int(values.size),
+                    "p16": float(p16),
+                    "median": float(p50),
+                    "p84": float(p84),
+                }
+            else:
+                element = {
+                    "index": [] if not param_shape else list(np.unravel_index(flat_index, param_shape)),
+                    "n_finite": 0,
+                    "p16": float("nan"),
+                    "median": float("nan"),
+                    "p84": float("nan"),
+                }
+            elements.append(element)
+
+        parameter_summary[key_str] = {
+            "sample_shape": list(array.shape),
+            "parameter_shape": list(param_shape),
+            "n_draws": int(matrix.shape[0]),
+            "n_elements": int(matrix.shape[1]),
+            "elements": elements,
+        }
+
+        if matrix.shape[1] == 1:
+            top_level[f"param_{safe_key}16"] = elements[0]["p16"]
+            top_level[f"param_{safe_key}"] = elements[0]["median"]
+            top_level[f"param_{safe_key}84"] = elements[0]["p84"]
+        elif matrix.shape[1] <= max_top_level_elements:
+            for element in elements:
+                suffix = "_".join(str(idx) for idx in element["index"])
+                prefix = f"param_{safe_key}_{suffix}"
+                top_level[f"{prefix}16"] = element["p16"]
+                top_level[prefix] = element["median"]
+                top_level[f"{prefix}84"] = element["p84"]
+
+    return {
+        "posterior_sample_keys": sorted(str(key) for key in samples),
+        "posterior_sample_shapes": shapes,
+        "posterior_parameter_summary": parameter_summary,
+        **top_level,
+    }
+
+
 def _predictive_or_empty(fitter: Any) -> dict[str, Any]:
     try:
         predictive = fitter.predict(kind="photometry")
@@ -435,6 +546,9 @@ def _run_fit(
     sfr_summary = _extract_sfr_summary(fitter.samples)
     predictive_summary = _extract_predictive_summary(fitter)
     truth_summary = _truth_payload(row)
+    posterior_samples_path = _posterior_samples_npz_path(args, row)
+    posterior_sample_keys, posterior_skipped_keys = _save_posterior_samples_npz(posterior_samples_path, fitter.samples)
+    posterior_parameter_summary = _summarize_posterior_parameters(fitter.samples)
     payload = {
         "status": "success",
         "fit_index": int(row["fit_index"]),
@@ -458,6 +572,11 @@ def _run_fit(
         "sed_pdf_path": str(sed_pdf_path),
         "corner_pdf_path": str(corner_pdf_path),
         "trace_pdf_path": str(trace_pdf_path),
+        "posterior_samples_path": str(posterior_samples_path),
+        "posterior_samples_format": "npz",
+        "posterior_samples_saved_keys": posterior_sample_keys,
+        "posterior_samples_skipped_keys": posterior_skipped_keys,
+        **posterior_parameter_summary,
         "fit_summary": _fit_result_summary(fit_result),
         "sampler": args.sampler,
         "backend": _normalize_backend(args.backend),
