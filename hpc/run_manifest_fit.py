@@ -455,7 +455,47 @@ def _row_from_manifest(raw: dict[str, str], filter_names: list[str] | tuple[str,
     for name in filter_names:
         row[name] = float(raw[name])
         row[f"{name}_err"] = float(raw[f"{name}_err"])
+        gal_flux_key = f"{name}_gal"
+        gal_err_key = f"{name}_gal_err"
+        if gal_flux_key in raw and raw[gal_flux_key] != "":
+            row[gal_flux_key] = float(raw[gal_flux_key])
+        if gal_err_key in raw and raw[gal_err_key] != "":
+            row[gal_err_key] = float(raw[gal_err_key])
     return row
+
+
+def _normalize_photometry_source(value: str) -> str:
+    source = str(value).strip().lower()
+    if source in {"chimera", "composite", "agn"}:
+        return "chimera"
+    if source in {"galaxy", "cosmos", "host", "cosmos-galaxy", "galaxy-only"}:
+        return "galaxy"
+    raise ValueError(f"Unsupported photometry source {value!r}; choose chimera or galaxy/cosmos.")
+
+
+def _apply_photometry_source(row: dict[str, Any], filter_names: list[str] | tuple[str, ...], source: str) -> dict[str, Any]:
+    source = _normalize_photometry_source(source)
+    if source == "chimera":
+        return row
+
+    out = dict(row)
+    missing = []
+    for name in filter_names:
+        gal_flux_key = f"{name}_gal"
+        gal_err_key = f"{name}_gal_err"
+        if gal_flux_key not in row or gal_err_key not in row:
+            missing.extend([gal_flux_key, gal_err_key])
+            continue
+        out[name] = float(row[gal_flux_key])
+        out[f"{name}_err"] = float(row[gal_err_key])
+    if missing:
+        preview = ", ".join(missing[:6])
+        raise RuntimeError(
+            "Galaxy-only/COSMOS photometry was requested, but the manifest does not contain "
+            f"the required *_gal columns. Missing examples: {preview}. "
+            "Rebuild fit_manifest.csv with the updated build_chimera_fit_manifest.py first."
+        )
+    return out
 
 
 def _select_manifest_entry(args: argparse.Namespace) -> dict[str, str]:
@@ -484,7 +524,8 @@ def _run_fit(
     corner_pdf_path: Path,
     trace_pdf_path: Path,
 ) -> dict[str, Any]:
-    _, build_chimera_fit_config, fitter_cls = _load_backend(args.backend)
+    filter_names, build_chimera_fit_config, fitter_cls = _load_backend(args.backend)
+    row = _apply_photometry_source(row, filter_names, args.photometry_source)
     cfg = build_chimera_fit_config(row, dsps_ssp_fn=str(args.dsps_ssp_fn))
     if args.disable_agn:
         cfg.agn.fit_agn = False
@@ -602,6 +643,7 @@ def _run_fit(
         "fit_summary": _fit_result_summary(fit_result),
         "sampler": args.sampler,
         "backend": _normalize_backend(args.backend),
+        "photometry_source": _normalize_photometry_source(args.photometry_source),
         "fit_agn": bool(getattr(cfg.agn, "fit_agn", True)),
         "disable_agn": bool(args.disable_agn),
         "optax_steps": int(args.optax_steps),
@@ -690,6 +732,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ns-max-likelihood-evals", type=int, default=None)
     parser.add_argument("--ns-efficiency-threshold", type=float, default=None)
     parser.add_argument("--target-accept-prob", type=float, default=0.85)
+    parser.add_argument(
+        "--photometry-source",
+        choices=("chimera", "galaxy", "cosmos"),
+        default="chimera",
+        help="Photometry to fit: chimera uses AGN+COSMOS composite fluxes; galaxy/cosmos uses the *_gal COSMOS-only manifest columns.",
+    )
     parser.add_argument(
         "--disable-agn",
         action="store_true",

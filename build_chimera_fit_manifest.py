@@ -144,6 +144,8 @@ def _load_joined_rows(data_dir: Path, provenance_path: Path | None) -> list[dict
         "e_logL3000_QSO",
         "logL1350_QSO",
         "e_logL1350_QSO",
+        *[f"{column}_GAL" for column in phot_filter_cols],
+        *[f"{column}_err_GAL" for column in phot_filter_cols],
     ]
     phot = _read_fits_by_id(phot_path, phot_cols)
     truth = _read_fits_by_id(truth_path, truth_cols)
@@ -183,6 +185,8 @@ def _load_joined_rows(data_dir: Path, provenance_path: Path | None) -> list[dict
             column = CHIMERA_FILTER_COLUMN_MAP.get(name, name)
             row[name] = float(prow[column])
             row[f"{name}_err"] = float(prow[f"{column}_err"])
+            row[f"{name}_gal"] = float(trow[f"{column}_GAL"])
+            row[f"{name}_gal_err"] = float(trow[f"{column}_err_GAL"])
         if row_id in provenance:
             row.update({field: provenance[row_id].get(field, "") for field in PROVENANCE_FIELDS})
         rows.append(row)
@@ -264,6 +268,8 @@ def _rows_in_bin(
         for name in CHIMERA_FILTER_NAMES:
             out[name] = float(row[name])
             out[f"{name}_err"] = float(row[f"{name}_err"])
+            out[f"{name}_gal"] = float(row[f"{name}_gal"])
+            out[f"{name}_gal_err"] = float(row[f"{name}_gal_err"])
         for field in PROVENANCE_FIELDS:
             if field in row:
                 out[field] = row[field]
@@ -275,10 +281,14 @@ def _fieldnames(include_provenance: bool) -> list[str]:
     phot_fields = []
     for name in CHIMERA_FILTER_NAMES:
         phot_fields.extend([name, f"{name}_err"])
+    galaxy_phot_fields = []
+    for name in CHIMERA_FILTER_NAMES:
+        galaxy_phot_fields.extend([f"{name}_gal", f"{name}_gal_err"])
     fields = [*BASE_FIELDS]
     if include_provenance:
         fields.extend(PROVENANCE_FIELDS)
     fields.extend(phot_fields)
+    fields.extend(galaxy_phot_fields)
     return fields
 
 

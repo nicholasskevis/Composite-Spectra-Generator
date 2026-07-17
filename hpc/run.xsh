@@ -114,6 +114,7 @@ def _build_single_object_command(
     dry_run: bool,
     ns_resamples: int,
     use_map_init: bool | None,
+    photometry_source: str,
     disable_agn: bool,
 ) -> list[str]:
     cmd = [
@@ -137,6 +138,8 @@ def _build_single_object_command(
         "--target-accept-prob",
         str(TARGET_ACCEPT_PROB),
     ]
+    if photometry_source != "chimera":
+        cmd.extend(["--photometry-source", photometry_source])
     if disable_agn:
         cmd.append("--disable-agn")
 
@@ -235,6 +238,8 @@ def _build_all_objects_command(args: argparse.Namespace) -> list[str]:
         cmd.extend(["--max-tree-depth", str(args.max_tree_depth)])
     if args.use_map_init is not None:
         cmd.append("--use-map-init" if args.use_map_init else "--no-use-map-init")
+    if args.photometry_source != "chimera":
+        cmd.extend(["--photometry-source", args.photometry_source])
     if args.disable_agn:
         cmd.append("--disable-agn")
     if args.luminosity_bin is not None:
@@ -436,6 +441,7 @@ parser.add_argument("--nuts-warmup", type=int, default=NUTS_WARMUP, help="NUTS w
 parser.add_argument("--nuts-samples", type=int, default=NUTS_SAMPLES, help="NUTS posterior draws for --compare-backends.")
 parser.add_argument("--nuts-chains", type=int, default=NUTS_CHAINS, help="NUTS chains for --compare-backends.")
 parser.add_argument("--target-accept-prob", type=float, default=TARGET_ACCEPT_PROB)
+parser.add_argument("--photometry-source", choices=("chimera", "galaxy", "cosmos"), default="chimera", help="For grahspj fits, choose Chimera composite photometry or COSMOS galaxy-only photometry.")
 parser.add_argument("--disable-agn", action="store_true", help="Fit Chimera photometry with the JAXSEDFit AGN component switched off.")
 parser.add_argument("--dense-mass", action=argparse.BooleanOptionalAction, default=NUTS_DENSE_MASS)
 parser.add_argument(
@@ -534,6 +540,7 @@ else:
         args.dry_run,
         args.ns_resamples,
         args.use_map_init,
+        args.photometry_source,
         args.disable_agn,
     )
 
