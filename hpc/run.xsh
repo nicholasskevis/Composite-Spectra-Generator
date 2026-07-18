@@ -109,6 +109,7 @@ def _sampler_output_dir(sampler: str) -> Path:
 
 
 def _build_single_object_command(
+    manifest: Path,
     sampler: str,
     output_dir: Path,
     dry_run: bool,
@@ -121,7 +122,7 @@ def _build_single_object_command(
         "python",
         str(_root_path("hpc", "run_manifest_fit.py")),
         "--manifest",
-        str(MANIFEST),
+        str(manifest),
         "--progress-bar",
         "--output-dir",
         str(output_dir),
@@ -196,7 +197,7 @@ def _build_all_objects_command(args: argparse.Namespace) -> list[str]:
         "python",
         str(_root_path("hpc", "submit_loglbol_slurm_chunks.py")),
         "--manifest",
-        str(MANIFEST),
+        str(args.manifest),
         "--output-dir",
         str(output_root),
         "--dsps-ssp-fn",
@@ -260,7 +261,7 @@ def _build_comparison_command(args: argparse.Namespace) -> list[str]:
         "python",
         str(_root_path("hpc", "run_grahsp_jaxsedfit_comparison.py")),
         "--manifest",
-        str(MANIFEST),
+        str(args.manifest),
         "--object-id",
         args.object_id,
         "--output-dir",
@@ -303,7 +304,7 @@ def _build_joint_spectra_command(args: argparse.Namespace) -> list[str]:
     output_dir = args.output_dir if args.output_dir is not None else JOINT_OUTPUT_ROOT
     common = [
         "--manifest",
-        str(MANIFEST),
+        str(args.manifest),
         "--spectra-manifest",
         str(args.spectra_manifest),
         "--output-dir",
@@ -425,6 +426,7 @@ parser.add_argument("--compare-backends", action="store_true", help="Run one obj
 parser.add_argument("--joint-spectra", action="store_true", help="Run JAXSEDFit jointly on Chimera photometry and notebook-6 spectra.")
 parser.add_argument("--optimize-top-outliers", action="store_true", help="Submit the top-outlier MCMC settings grid as Slurm arrays.")
 parser.add_argument("--sampler", choices=("optax", "nuts", "optax+nuts", "ns"), default="optax+nuts")
+parser.add_argument("--manifest", type=Path, default=MANIFEST, help="Manifest CSV to run. Defaults to fit_manifest.csv.")
 parser.add_argument(
     "--output-dir",
     type=Path,
@@ -535,6 +537,7 @@ elif args.all_objects:
 else:
     output_dir = args.output_dir if args.output_dir is not None else _sampler_output_dir(args.sampler)
     cmd = _build_single_object_command(
+        args.manifest,
         args.sampler,
         output_dir,
         args.dry_run,
