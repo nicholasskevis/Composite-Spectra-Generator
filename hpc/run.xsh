@@ -73,6 +73,15 @@ TOP_OUTLIER_DENSE_MASS = "false,true"
 TOP_OUTLIER_TREE_DEPTH = "6,8,10"
 TOP_OUTLIER_MAP_STEPS = "300,500"
 TOP_OUTLIER_LEARNING_RATE = "0.003,0.005"
+CIGALE_CONFIG_ROOT = Path("/home/ns2385/Cigale_run")
+CIGALE_SOURCE_DIR = Path("/home/ns2385/cigale/cigale-v2025.1")
+CIGALE_CHIMERA_INPUT = Path("/home/ns2385/Chimera/chimeras-2023-10-11/chimeras-cigale.fits")
+CIGALE_OUTPUT_ROOT = Path("/home/ns2385/project_pi_pn38/ns2385/cigale_chimera_runs")
+CIGALE_MODEL = "Yang"
+CIGALE_JOB_NAME = "chimera_cigale"
+CIGALE_TIME = "24:00:00"
+CIGALE_CPUS_PER_TASK = 8
+CIGALE_MEM = "32G"
 
 
 # -----------------------------------------------------------------------------
@@ -420,11 +429,55 @@ def _build_top_outlier_optimization_command(args: argparse.Namespace) -> list[st
     return cmd
 
 
+def _build_cigale_command(args: argparse.Namespace) -> list[str]:
+    output_root = args.output_dir if args.output_dir is not None else CIGALE_OUTPUT_ROOT
+    cmd = [
+        "python",
+        str(_root_path("hpc", "submit_cigale_chimera_slurm.py")),
+        "--model",
+        args.cigale_model,
+        "--config-root",
+        str(args.cigale_config_root),
+        "--cigale-source-dir",
+        str(args.cigale_source_dir),
+        "--chimera-input",
+        str(args.cigale_chimera_input),
+        "--output-root",
+        str(output_root),
+        "--job-name",
+        args.job_name,
+        "--partition",
+        args.partition,
+        "--time",
+        args.time_limit,
+        "--cpus-per-task",
+        str(args.cpus_per_task),
+        "--mem",
+        args.mem,
+        "--conda-env",
+        args.conda_env,
+        "--pcigale-command",
+        args.pcigale_command,
+    ]
+    if args.run_dir is not None:
+        cmd.extend(["--run-name", str(args.run_dir)])
+    if args.copy_cigale_input:
+        cmd.append("--copy-input")
+    if args.overwrite:
+        cmd.append("--overwrite")
+    if args.prepare_only:
+        cmd.append("--prepare-only")
+    if args.dry_run:
+        cmd.append("--dry-run")
+    return cmd
+
+
 parser = argparse.ArgumentParser(description="Run one configured fit, or submit all manifest rows as Slurm chunks.")
 parser.add_argument("--all-objects", action="store_true", help="Submit every manifest row as chunked Slurm arrays.")
 parser.add_argument("--compare-backends", action="store_true", help="Run one object through both JAXSEDFit and external GRAHSP.")
 parser.add_argument("--joint-spectra", action="store_true", help="Run JAXSEDFit jointly on Chimera photometry and notebook-6 spectra.")
 parser.add_argument("--optimize-top-outliers", action="store_true", help="Submit the top-outlier MCMC settings grid as Slurm arrays.")
+parser.add_argument("--cigale", action="store_true", help="Prepare and submit a full-Chimera CIGALE run.")
 parser.add_argument("--sampler", choices=("optax", "nuts", "optax+nuts", "ns"), default="optax+nuts")
 parser.add_argument("--manifest", type=Path, default=MANIFEST, help="Manifest CSV to run. Defaults to fit_manifest.csv.")
 parser.add_argument(
@@ -468,7 +521,16 @@ parser.add_argument("--partition", default=SLURM_PARTITION)
 parser.add_argument("--time", default=SLURM_TIME, dest="time_limit")
 parser.add_argument("--cpus-per-task", type=int, default=SLURM_CPUS_PER_TASK)
 parser.add_argument("--mem-per-cpu", default=SLURM_MEM_PER_CPU)
+parser.add_argument("--mem", default=CIGALE_MEM, help="Total Slurm memory for --cigale, e.g. 32G.")
 parser.add_argument("--conda-env", default=SLURM_CONDA_ENV)
+parser.add_argument("--cigale-model", default=CIGALE_MODEL, help="Model folder under --cigale-config-root, e.g. Yang, Dale, Fritz.")
+parser.add_argument("--cigale-config-root", type=Path, default=CIGALE_CONFIG_ROOT)
+parser.add_argument("--cigale-source-dir", type=Path, default=CIGALE_SOURCE_DIR)
+parser.add_argument("--cigale-chimera-input", type=Path, default=CIGALE_CHIMERA_INPUT)
+parser.add_argument("--pcigale-command", default="pcigale")
+parser.add_argument("--copy-cigale-input", action="store_true", help="Copy the Chimera FITS into the CIGALE run directory instead of symlinking it.")
+parser.add_argument("--overwrite", action="store_true", help="Allow the CIGALE submitter to write into a non-empty run directory.")
+parser.add_argument("--prepare-only", action="store_true", help="For --cigale, prepare files but do not submit to Slurm.")
 parser.add_argument("--spectra-manifest", type=Path, default=SPECTRA_MANIFEST)
 parser.add_argument("--outliers-csv", type=Path, default=_root_path("top100_mass_retrieval_outliers_per_logLbol_bin.csv"))
 parser.add_argument("--limit", type=int, default=TOP_OUTLIER_LIMIT)
@@ -513,10 +575,20 @@ if args.joint_spectra:
     if args.nuts_chains == NUTS_CHAINS:
         args.nuts_chains = JOINT_NUTS_CHAINS
 
-if sum(bool(x) for x in (args.compare_backends, args.joint_spectra, args.optimize_top_outliers)) > 1:
-    raise SystemExit("--compare-backends, --joint-spectra, and --optimize-top-outliers cannot be used together.")
+if sum(bool(x) for x in (args.compare_backends, args.joint_spectra, args.optimize_top_outliers, args.cigale)) > 1:
+    raise SystemExit("--compare-backends, --joint-spectra, --optimize-top-outliers, and --cigale cannot be used together.")
 if args.all_objects and args.compare_backends:
     raise SystemExit("--all-objects and --compare-backends cannot be used together.")
+
+if args.cigale:
+    if args.job_name == ALL_OBJECTS_JOB_NAME:
+        args.job_name = CIGALE_JOB_NAME
+    if args.partition == SLURM_PARTITION:
+        args.partition = SLURM_PARTITION
+    if args.time_limit == SLURM_TIME:
+        args.time_limit = CIGALE_TIME
+    if args.cpus_per_task == SLURM_CPUS_PER_TASK:
+        args.cpus_per_task = CIGALE_CPUS_PER_TASK
 
 if args.optimize_top_outliers:
     if args.job_name == ALL_OBJECTS_JOB_NAME:
@@ -526,7 +598,9 @@ if args.optimize_top_outliers:
     if args.output_dir is None:
         args.output_dir = TOP_OUTLIER_OUTPUT_ROOT
 
-if args.joint_spectra:
+if args.cigale:
+    cmd = _build_cigale_command(args)
+elif args.joint_spectra:
     cmd = _build_joint_spectra_command(args)
 elif args.optimize_top_outliers:
     cmd = _build_top_outlier_optimization_command(args)

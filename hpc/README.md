@@ -55,6 +55,40 @@ python hpc/backfill_grahsp_notebook_outputs.py \
 
 By default, external GRAHSP runs now retain the CSV products needed to rebuild SED plots and remove/copy no PDF plot products. This keeps home-directory usage much lower. If you specifically need the GRAHSP PDFs for one run, call `hpc/run_grahsp_manifest_fit.py` directly with `--keep-pdfs`.
 
+## Full-Chimera CIGALE Runs
+
+Use `run.xsh --cigale` to prepare a full Chimera CIGALE run directory and submit it to Slurm. The launcher expects the HPC layout shown below by default:
+
+- CIGALE model configs under `/home/ns2385/Cigale_run/<model>/pcigale.ini`
+- CIGALE source checkout under `/home/ns2385/cigale/cigale-v2025.1`
+- Chimera CIGALE input table at `/home/ns2385/Chimera/chimeras-2023-10-11/chimeras-cigale.fits`
+- Output under `/home/ns2385/project_pi_pn38/ns2385/cigale_chimera_runs`
+
+Submit the Yang setup:
+
+```bash
+python hpc/run.xsh --cigale --cigale-model Yang
+```
+
+The launcher creates a timestamped run directory, copies the selected `pcigale.ini`, links the Chimera FITS table as `input.fits`, patches the config so `data_file = input.fits`, writes `run_cigale.slurm`, then submits `pcigale check` followed by `pcigale run`.
+
+For a dry run that prepares the files and prints the Slurm script without submitting:
+
+```bash
+python hpc/run.xsh --cigale --cigale-model Yang --dry-run
+```
+
+You can run a different setup by changing the model folder name:
+
+```bash
+python hpc/run.xsh --cigale --cigale-model Dale
+python hpc/run.xsh --cigale --cigale-model Fritz
+python hpc/run.xsh --cigale --cigale-model Ciesla
+python hpc/run.xsh --cigale --cigale-model gal
+```
+
+If `pcigale` has a different command name in the environment, pass `--pcigale-command`. If the model configs or Chimera table move, override them with `--cigale-config-root`, `--cigale-source-dir`, or `--cigale-chimera-input`.
+
 ## Single-Object JAXSEDFit vs External GRAHSP Comparison
 
 Notebook 13 is also available as a non-interactive HPC script. The GRAHSP side uses the external GRAHSP runner, not the `grahspj`/JAXSEDFit backend alias:
