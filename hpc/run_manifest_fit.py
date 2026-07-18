@@ -111,6 +111,34 @@ def _sample_percentiles(samples: Any) -> tuple[float, float, float]:
     return float(p16), float(p50), float(p84)
 
 
+def _sample_quantiles(samples: Any) -> dict[str, float]:
+    values = np.asarray(samples, dtype=float).reshape(-1)
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return {
+            "p02_275": float("nan"),
+            "p10": float("nan"),
+            "p16": float("nan"),
+            "p50": float("nan"),
+            "p84": float("nan"),
+            "p90": float("nan"),
+            "p97_725": float("nan"),
+        }
+    p02_275, p10, p16, p50, p84, p90, p97_725 = np.percentile(
+        values,
+        [2.275, 10.0, 16.0, 50.0, 84.0, 90.0, 97.725],
+    )
+    return {
+        "p02_275": float(p02_275),
+        "p10": float(p10),
+        "p16": float(p16),
+        "p50": float(p50),
+        "p84": float(p84),
+        "p90": float(p90),
+        "p97_725": float(p97_725),
+    }
+
+
 def _finite_float(value: Any) -> float:
     try:
         out = float(value)
@@ -127,18 +155,26 @@ def _optional_float(raw: dict[str, str], key: str) -> float | None:
 
 
 def _percentile_payload(prefix: str, values: Any, *, add_erg_s: bool = False) -> dict[str, float]:
-    p16, p50, p84 = _sample_percentiles(values)
+    q = _sample_quantiles(values)
     out = {
-        f"{prefix}16": p16,
-        prefix: p50,
-        f"{prefix}84": p84,
+        f"{prefix}_2sigma_lo": q["p02_275"],
+        f"{prefix}10": q["p10"],
+        f"{prefix}16": q["p16"],
+        prefix: q["p50"],
+        f"{prefix}84": q["p84"],
+        f"{prefix}90": q["p90"],
+        f"{prefix}_2sigma_hi": q["p97_725"],
     }
     if add_erg_s:
         out.update(
             {
-                f"{prefix}_erg_s16": p16 + 7.0 if np.isfinite(p16) else float("nan"),
-                f"{prefix}_erg_s": p50 + 7.0 if np.isfinite(p50) else float("nan"),
-                f"{prefix}_erg_s84": p84 + 7.0 if np.isfinite(p84) else float("nan"),
+                f"{prefix}_erg_s_2sigma_lo": q["p02_275"] + 7.0 if np.isfinite(q["p02_275"]) else float("nan"),
+                f"{prefix}_erg_s10": q["p10"] + 7.0 if np.isfinite(q["p10"]) else float("nan"),
+                f"{prefix}_erg_s16": q["p16"] + 7.0 if np.isfinite(q["p16"]) else float("nan"),
+                f"{prefix}_erg_s": q["p50"] + 7.0 if np.isfinite(q["p50"]) else float("nan"),
+                f"{prefix}_erg_s84": q["p84"] + 7.0 if np.isfinite(q["p84"]) else float("nan"),
+                f"{prefix}_erg_s90": q["p90"] + 7.0 if np.isfinite(q["p90"]) else float("nan"),
+                f"{prefix}_erg_s_2sigma_hi": q["p97_725"] + 7.0 if np.isfinite(q["p97_725"]) else float("nan"),
             }
         )
     return out
@@ -209,21 +245,29 @@ def _summarize_posterior_parameters(samples: dict[str, Any], *, max_top_level_el
             values = matrix[:, flat_index]
             values = values[np.isfinite(values)]
             if values.size:
-                p16, p50, p84 = np.percentile(values, [16.0, 50.0, 84.0])
+                q = _sample_quantiles(values)
                 element = {
                     "index": [] if not param_shape else list(np.unravel_index(flat_index, param_shape)),
                     "n_finite": int(values.size),
-                    "p16": float(p16),
-                    "median": float(p50),
-                    "p84": float(p84),
+                    "p02_275": q["p02_275"],
+                    "p10": q["p10"],
+                    "p16": q["p16"],
+                    "median": q["p50"],
+                    "p84": q["p84"],
+                    "p90": q["p90"],
+                    "p97_725": q["p97_725"],
                 }
             else:
                 element = {
                     "index": [] if not param_shape else list(np.unravel_index(flat_index, param_shape)),
                     "n_finite": 0,
+                    "p02_275": float("nan"),
+                    "p10": float("nan"),
                     "p16": float("nan"),
                     "median": float("nan"),
                     "p84": float("nan"),
+                    "p90": float("nan"),
+                    "p97_725": float("nan"),
                 }
             elements.append(element)
 
@@ -236,16 +280,24 @@ def _summarize_posterior_parameters(samples: dict[str, Any], *, max_top_level_el
         }
 
         if matrix.shape[1] == 1:
+            top_level[f"param_{safe_key}_2sigma_lo"] = elements[0]["p02_275"]
+            top_level[f"param_{safe_key}10"] = elements[0]["p10"]
             top_level[f"param_{safe_key}16"] = elements[0]["p16"]
             top_level[f"param_{safe_key}"] = elements[0]["median"]
             top_level[f"param_{safe_key}84"] = elements[0]["p84"]
+            top_level[f"param_{safe_key}90"] = elements[0]["p90"]
+            top_level[f"param_{safe_key}_2sigma_hi"] = elements[0]["p97_725"]
         elif matrix.shape[1] <= max_top_level_elements:
             for element in elements:
                 suffix = "_".join(str(idx) for idx in element["index"])
                 prefix = f"param_{safe_key}_{suffix}"
+                top_level[f"{prefix}_2sigma_lo"] = element["p02_275"]
+                top_level[f"{prefix}10"] = element["p10"]
                 top_level[f"{prefix}16"] = element["p16"]
                 top_level[prefix] = element["median"]
                 top_level[f"{prefix}84"] = element["p84"]
+                top_level[f"{prefix}90"] = element["p90"]
+                top_level[f"{prefix}_2sigma_hi"] = element["p97_725"]
 
     return {
         "posterior_sample_keys": sorted(str(key) for key in samples),
@@ -306,20 +358,28 @@ def _extract_predictive_summary(fitter: Any) -> dict[str, Any]:
 
 
 def _sfr_payload_from_linear(prefix: str, values: Any) -> dict[str, float]:
-    p16, p50, p84 = _sample_percentiles(values)
+    q = _sample_quantiles(values)
     positive = np.asarray(values, dtype=float).reshape(-1)
     positive = positive[np.isfinite(positive) & (positive > 0.0)]
     if positive.size:
-        log16, log50, log84 = np.percentile(np.log10(positive), [16.0, 50.0, 84.0])
+        log_q = _sample_quantiles(np.log10(positive))
     else:
-        log16 = log50 = log84 = float("nan")
+        log_q = _sample_quantiles([])
     return {
-        f"{prefix}16": p16,
-        prefix: p50,
-        f"{prefix}84": p84,
-        f"log_{prefix}16": float(log16),
-        f"log_{prefix}": float(log50),
-        f"log_{prefix}84": float(log84),
+        f"{prefix}_2sigma_lo": q["p02_275"],
+        f"{prefix}10": q["p10"],
+        f"{prefix}16": q["p16"],
+        prefix: q["p50"],
+        f"{prefix}84": q["p84"],
+        f"{prefix}90": q["p90"],
+        f"{prefix}_2sigma_hi": q["p97_725"],
+        f"log_{prefix}_2sigma_lo": log_q["p02_275"],
+        f"log_{prefix}10": log_q["p10"],
+        f"log_{prefix}16": log_q["p16"],
+        f"log_{prefix}": log_q["p50"],
+        f"log_{prefix}84": log_q["p84"],
+        f"log_{prefix}90": log_q["p90"],
+        f"log_{prefix}_2sigma_hi": log_q["p97_725"],
     }
 
 
@@ -331,35 +391,51 @@ def _extract_sfr_summary(samples: dict[str, Any]) -> dict[str, Any]:
         if key not in samples:
             continue
 
-        p16, p50, p84 = _sample_percentiles(samples[key])
+        q = _sample_quantiles(samples[key])
         out: dict[str, Any] = {"sfr_sample_key": key}
         key_lower = key.lower()
         if key_lower.startswith("log"):
             out.update(
                 {
-                    "log_sfr16": p16,
-                    "log_sfr": p50,
-                    "log_sfr84": p84,
-                    "sfr16": float(10.0**p16) if np.isfinite(p16) else float("nan"),
-                    "sfr": float(10.0**p50) if np.isfinite(p50) else float("nan"),
-                    "sfr84": float(10.0**p84) if np.isfinite(p84) else float("nan"),
+                    "log_sfr_2sigma_lo": q["p02_275"],
+                    "log_sfr10": q["p10"],
+                    "log_sfr16": q["p16"],
+                    "log_sfr": q["p50"],
+                    "log_sfr84": q["p84"],
+                    "log_sfr90": q["p90"],
+                    "log_sfr_2sigma_hi": q["p97_725"],
+                    "sfr_2sigma_lo": float(10.0**q["p02_275"]) if np.isfinite(q["p02_275"]) else float("nan"),
+                    "sfr10": float(10.0**q["p10"]) if np.isfinite(q["p10"]) else float("nan"),
+                    "sfr16": float(10.0**q["p16"]) if np.isfinite(q["p16"]) else float("nan"),
+                    "sfr": float(10.0**q["p50"]) if np.isfinite(q["p50"]) else float("nan"),
+                    "sfr84": float(10.0**q["p84"]) if np.isfinite(q["p84"]) else float("nan"),
+                    "sfr90": float(10.0**q["p90"]) if np.isfinite(q["p90"]) else float("nan"),
+                    "sfr_2sigma_hi": float(10.0**q["p97_725"]) if np.isfinite(q["p97_725"]) else float("nan"),
                 }
             )
         else:
             values = np.asarray(samples[key], dtype=float).reshape(-1)
             positive = values[np.isfinite(values) & (values > 0.0)]
             if positive.size:
-                log16, log50, log84 = np.percentile(np.log10(positive), [16.0, 50.0, 84.0])
+                log_q = _sample_quantiles(np.log10(positive))
             else:
-                log16 = log50 = log84 = float("nan")
+                log_q = _sample_quantiles([])
             out.update(
                 {
-                    "sfr16": p16,
-                    "sfr": p50,
-                    "sfr84": p84,
-                    "log_sfr16": float(log16),
-                    "log_sfr": float(log50),
-                    "log_sfr84": float(log84),
+                    "sfr_2sigma_lo": q["p02_275"],
+                    "sfr10": q["p10"],
+                    "sfr16": q["p16"],
+                    "sfr": q["p50"],
+                    "sfr84": q["p84"],
+                    "sfr90": q["p90"],
+                    "sfr_2sigma_hi": q["p97_725"],
+                    "log_sfr_2sigma_lo": log_q["p02_275"],
+                    "log_sfr10": log_q["p10"],
+                    "log_sfr16": log_q["p16"],
+                    "log_sfr": log_q["p50"],
+                    "log_sfr84": log_q["p84"],
+                    "log_sfr90": log_q["p90"],
+                    "log_sfr_2sigma_hi": log_q["p97_725"],
                 }
             )
         return out
@@ -604,7 +680,10 @@ def _run_fit(
     fitter.plot_corner(output_path=corner_pdf_path)
     fitter.plot_trace(output_path=trace_pdf_path)
     logm_samples = np.asarray(fitter.samples["log_stellar_mass"], dtype=float).reshape(-1)
-    logm16, recovered_logm, logm84 = np.percentile(logm_samples, [16.0, 50.0, 84.0])
+    logm_q = _sample_quantiles(logm_samples)
+    logm16 = logm_q["p16"]
+    recovered_logm = logm_q["p50"]
+    logm84 = logm_q["p84"]
     truth_logm = float(row["log_stellar_mass_truth"])
     sfr_summary = _extract_sfr_summary(fitter.samples)
     predictive_summary = _extract_predictive_summary(fitter)
@@ -627,8 +706,12 @@ def _run_fit(
         "luminosity_bin": str(row["luminosity_bin"]),
         **truth_summary,
         "recovered_logm": float(recovered_logm),
+        "logm_2sigma_lo": float(logm_q["p02_275"]),
+        "logm10": float(logm_q["p10"]),
         "logm16": float(logm16),
         "logm84": float(logm84),
+        "logm90": float(logm_q["p90"]),
+        "logm_2sigma_hi": float(logm_q["p97_725"]),
         "residual_log_ratio": float(recovered_logm - truth_logm),
         **sfr_summary,
         **predictive_summary,
