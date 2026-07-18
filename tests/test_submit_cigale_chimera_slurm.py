@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from hpc.submit_cigale_chimera_slurm import SlurmSettings, build_slurm_script, patch_pcigale_ini
+from hpc.submit_cigale_chimera_slurm import SlurmSettings, _iter_chunks, build_slurm_script, patch_pcigale_ini
 
 
 def test_patch_pcigale_ini_updates_data_file_and_cores():
@@ -45,3 +45,16 @@ def test_build_slurm_script_runs_check_then_run():
     assert "pcigale check" in script
     assert "pcigale run" in script
     assert "PYTHONPATH" in script
+
+
+def test_iter_chunks_splits_like_slurm_manifests():
+    assert list(_iter_chunks(13558, 4000)) == [
+        (0, 4000),
+        (4000, 8000),
+        (8000, 12000),
+        (12000, 13558),
+    ]
+
+
+def test_iter_chunks_allows_single_full_job():
+    assert list(_iter_chunks(13558, 0)) == [(0, 13558)]

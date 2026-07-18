@@ -70,13 +70,15 @@ Submit the Yang setup:
 python hpc/run.xsh --cigale --cigale-model Yang
 ```
 
-The launcher creates a timestamped run directory, copies the selected `pcigale.ini`, links the Chimera FITS table as `input.fits`, patches the config so `data_file = input.fits`, writes `run_cigale.slurm`, then submits `pcigale check` followed by `pcigale run`.
+The launcher creates a timestamped run directory, splits the Chimera FITS table into 4000-row chunks by default, copies the selected `pcigale.ini` into each chunk run directory, links each chunk as `input.fits`, patches the config so `data_file = input.fits`, writes `run_cigale.slurm`, then submits `pcigale check` followed by `pcigale run` for each chunk.
 
 For a dry run that prepares the files and prints the Slurm script without submitting:
 
 ```bash
 python hpc/run.xsh --cigale --cigale-model Yang --dry-run
 ```
+
+Use a different chunk size with `--cigale-chunk-size`. Use `--cigale-chunk-size 0` only if you intentionally want one full-table CIGALE job.
 
 You can run a different setup by changing the model folder name:
 

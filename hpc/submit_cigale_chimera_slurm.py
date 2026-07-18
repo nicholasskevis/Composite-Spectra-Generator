@@ -13,12 +13,14 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Iterable
 
 
 DEFAULT_CONFIG_ROOT = Path("/home/ns2385/Cigale_run")
 DEFAULT_CIGALE_SOURCE_DIR = Path("/home/ns2385/cigale/cigale-v2025.1")
 DEFAULT_CHIMERA_INPUT = Path("/home/ns2385/Chimera/chimeras-2023-10-11/chimeras-cigale.fits")
 DEFAULT_OUTPUT_ROOT = Path("/home/ns2385/project_pi_pn38/ns2385/cigale_chimera_runs")
+DEFAULT_CHUNK_SIZE = 4000
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,14 @@ def _write_input_link_or_copy(source: Path, destination: Path, copy_input: bool)
         shutil.copy2(source, destination)
     else:
         destination.symlink_to(source)
+
+
+def _iter_chunks(n_rows: int, chunk_size: int) -> Iterable[tuple[int, int]]:
+    if chunk_size <= 0:
+        yield 0, n_rows
+        return
+    for start in range(0, n_rows, chunk_size):
+        yield start, min(start + chunk_size, n_rows)
 
 
 def _timestamped_run_name(model: str) -> str:
@@ -126,7 +136,44 @@ def _submit(script_path: Path, cwd: Path) -> str:
     return result.stdout.strip()
 
 
-def _prepare_run(args: argparse.Namespace) -> tuple[Path, Path]:
+def _read_fits_table(path: Path):
+    try:
+        from astropy.table import Table
+    except ImportError as exc:
+        raise ImportError("Chunked CIGALE submission requires astropy to read/write FITS tables.") from exc
+    return Table.read(path)
+
+
+def _write_chunk_tables(source: Path, chunks_dir: Path, chunk_size: int, overwrite: bool) -> list[tuple[Path, int, int]]:
+    table = _read_fits_table(source)
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    chunk_paths: list[tuple[Path, int, int]] = []
+    for start, stop in _iter_chunks(len(table), chunk_size):
+        chunk_path = chunks_dir / f"chimera_rows_{start:05d}_{stop - 1:05d}.fits"
+        if chunk_path.exists() and not overwrite:
+            raise FileExistsError(f"Chunk table already exists: {chunk_path}")
+        table[start:stop].write(chunk_path, overwrite=True)
+        chunk_paths.append((chunk_path, start, stop))
+    return chunk_paths
+
+
+def _write_run_files(
+    run_dir: Path,
+    source_ini: Path,
+    input_fits: Path,
+    args: argparse.Namespace,
+    metadata: dict[str, object],
+) -> Path:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    target_ini = run_dir / "pcigale.ini"
+    ini_text = source_ini.read_text()
+    target_ini.write_text(patch_pcigale_ini(ini_text, "input.fits", args.cpus_per_task))
+    _write_input_link_or_copy(input_fits, run_dir / "input.fits", args.copy_input)
+    (run_dir / "launcher_metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+    return target_ini
+
+
+def _prepare_run(args: argparse.Namespace) -> tuple[Path, Path, list[Path]]:
     model_dir = args.config_root / args.model
     source_ini = args.config if args.config is not None else model_dir / "pcigale.ini"
     if not source_ini.is_file():
@@ -140,12 +187,7 @@ def _prepare_run(args: argparse.Namespace) -> tuple[Path, Path]:
         raise FileExistsError(f"Run directory already exists and is not empty: {run_dir}")
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    target_ini = run_dir / "pcigale.ini"
-    ini_text = source_ini.read_text()
-    target_ini.write_text(patch_pcigale_ini(ini_text, "input.fits", args.cpus_per_task))
-    _write_input_link_or_copy(args.chimera_input, run_dir / "input.fits", args.copy_input)
-
-    metadata = {
+    base_metadata = {
         "model": args.model,
         "source_ini": str(source_ini),
         "chimera_input": str(args.chimera_input),
@@ -153,10 +195,45 @@ def _prepare_run(args: argparse.Namespace) -> tuple[Path, Path]:
         "run_dir": str(run_dir),
         "cigale_source_dir": str(args.cigale_source_dir),
         "pcigale_command": args.pcigale_command,
+        "chunk_size": args.chunk_size,
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
-    (run_dir / "launcher_metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
-    return run_dir, source_ini
+
+    if args.chunk_size <= 0:
+        _write_run_files(run_dir, source_ini, args.chimera_input, args, {**base_metadata, "chunked": False})
+        return run_dir, source_ini, [run_dir]
+
+    chunk_paths = _write_chunk_tables(args.chimera_input, run_dir / "input_chunks", args.chunk_size, args.overwrite)
+    chunk_run_dirs: list[Path] = []
+    chunk_manifest = []
+    for chunk_path, start, stop in chunk_paths:
+        chunk_run_dir = run_dir / "chunks" / f"rows_{start:05d}_{stop - 1:05d}"
+        if chunk_run_dir.exists() and any(chunk_run_dir.iterdir()) and not args.overwrite:
+            raise FileExistsError(f"Chunk run directory already exists and is not empty: {chunk_run_dir}")
+        chunk_metadata = {
+            **base_metadata,
+            "chunked": True,
+            "chunk_start": start,
+            "chunk_stop_exclusive": stop,
+            "chunk_input": str(chunk_path),
+            "chunk_run_dir": str(chunk_run_dir),
+        }
+        _write_run_files(chunk_run_dir, source_ini, chunk_path, args, chunk_metadata)
+        chunk_run_dirs.append(chunk_run_dir)
+        chunk_manifest.append(
+            {
+                "chunk_index": len(chunk_manifest),
+                "start": start,
+                "stop_exclusive": stop,
+                "n_rows": stop - start,
+                "input_fits": str(chunk_path),
+                "run_dir": str(chunk_run_dir),
+            }
+        )
+
+    (run_dir / "launcher_metadata.json").write_text(json.dumps({**base_metadata, "chunked": True, "n_chunks": len(chunk_run_dirs)}, indent=2) + "\n")
+    (run_dir / "chunk_manifest.json").write_text(json.dumps(chunk_manifest, indent=2) + "\n")
+    return run_dir, source_ini, chunk_run_dirs
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -168,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--chimera-input", type=Path, default=DEFAULT_CHIMERA_INPUT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-name", default=None)
+    parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE, help="Rows per CIGALE job. Use 0 to submit one full-table job.")
     parser.add_argument("--copy-input", action="store_true", help="Copy the FITS file instead of symlinking it.")
     parser.add_argument("--overwrite", action="store_true", help="Allow writing into a non-empty existing run directory.")
     parser.add_argument("--job-name", default=None)
@@ -181,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--prepare-only", action="store_true", help="Prepare files but do not submit.")
     args = parser.parse_args(argv)
 
-    run_dir, source_ini = _prepare_run(args)
+    run_dir, source_ini, run_dirs = _prepare_run(args)
     job_name = args.job_name or f"chimera_cigale_{args.model.lower()}"
     settings = SlurmSettings(
         job_name=job_name,
@@ -192,28 +270,47 @@ def main(argv: list[str] | None = None) -> int:
         conda_env=args.conda_env,
         pcigale_command=args.pcigale_command,
     )
-    script = build_slurm_script(run_dir, args.cigale_source_dir, settings)
-    script_path = run_dir / "run_cigale.slurm"
-    script_path.write_text(script)
-    os.chmod(script_path, 0o755)
-
     print(f"Model: {args.model}")
     print(f"Source config: {source_ini}")
     print(f"Input FITS: {args.chimera_input}")
     print(f"Run directory: {run_dir}")
-    print(f"Slurm script: {script_path}")
+    print(f"CIGALE jobs: {len(run_dirs)}")
+
+    scripts: list[Path] = []
+    for index, one_run_dir in enumerate(run_dirs):
+        chunk_settings = settings
+        if len(run_dirs) > 1:
+            chunk_settings = SlurmSettings(
+                job_name=f"{settings.job_name}_{index:03d}",
+                partition=settings.partition,
+                time_limit=settings.time_limit,
+                cpus_per_task=settings.cpus_per_task,
+                mem=settings.mem,
+                conda_env=settings.conda_env,
+                pcigale_command=settings.pcigale_command,
+            )
+        script = build_slurm_script(one_run_dir, args.cigale_source_dir, chunk_settings)
+        script_path = one_run_dir / "run_cigale.slurm"
+        script_path.write_text(script)
+        os.chmod(script_path, 0o755)
+        scripts.append(script_path)
+    print(f"Slurm scripts: {len(scripts)}")
 
     if args.dry_run:
-        print("\n--- sbatch script ---")
-        print(script.rstrip())
+        print("\n--- first sbatch script ---")
+        print(scripts[0].read_text().rstrip())
         return 0
     if args.prepare_only:
         print("Prepared run directory; not submitting because --prepare-only was set.")
         return 0
 
-    output = _submit(script_path, run_dir)
-    if output:
-        (run_dir / "sbatch_submission.txt").write_text(output + "\n")
+    submissions = []
+    for script_path in scripts:
+        output = _submit(script_path, script_path.parent)
+        if output:
+            submissions.append({"script": str(script_path), "sbatch_output": output})
+    if submissions:
+        (run_dir / "sbatch_submissions.json").write_text(json.dumps(submissions, indent=2) + "\n")
     return 0
 
 

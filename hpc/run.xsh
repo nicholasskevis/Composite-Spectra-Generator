@@ -82,6 +82,7 @@ CIGALE_JOB_NAME = "chimera_cigale"
 CIGALE_TIME = "24:00:00"
 CIGALE_CPUS_PER_TASK = 8
 CIGALE_MEM = "32G"
+CIGALE_CHUNK_SIZE = 4000
 
 
 # -----------------------------------------------------------------------------
@@ -444,6 +445,8 @@ def _build_cigale_command(args: argparse.Namespace) -> list[str]:
         str(args.cigale_chimera_input),
         "--output-root",
         str(output_root),
+        "--chunk-size",
+        str(args.cigale_chunk_size),
         "--job-name",
         args.job_name,
         "--partition",
@@ -527,6 +530,7 @@ parser.add_argument("--cigale-model", default=CIGALE_MODEL, help="Model folder u
 parser.add_argument("--cigale-config-root", type=Path, default=CIGALE_CONFIG_ROOT)
 parser.add_argument("--cigale-source-dir", type=Path, default=CIGALE_SOURCE_DIR)
 parser.add_argument("--cigale-chimera-input", type=Path, default=CIGALE_CHIMERA_INPUT)
+parser.add_argument("--cigale-chunk-size", type=int, default=CIGALE_CHUNK_SIZE, help="Rows per CIGALE Slurm job. Use 0 for one full-table job.")
 parser.add_argument("--pcigale-command", default="pcigale")
 parser.add_argument("--copy-cigale-input", action="store_true", help="Copy the Chimera FITS into the CIGALE run directory instead of symlinking it.")
 parser.add_argument("--overwrite", action="store_true", help="Allow the CIGALE submitter to write into a non-empty run directory.")
