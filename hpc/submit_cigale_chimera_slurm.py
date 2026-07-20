@@ -100,11 +100,24 @@ def build_slurm_script(
 #SBATCH --output={run_dir}/slurm_%j.out
 #SBATCH --error={run_dir}/slurm_%j.err
 
-set -euo pipefail
+set -eo pipefail
 
+# Site shell startup files can reference unset variables under `set -u`.
+# Keep nounset disabled until after modules/conda are initialized.
 module reset || true
 source ~/.bashrc || true
+if command -v conda >/dev/null 2>&1; then
+  eval "$(conda shell.bash hook)"
+elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+  source "$HOME/miniconda3/etc/profile.d/conda.sh"
+elif [ -f "$HOME/.conda/etc/profile.d/conda.sh" ]; then
+  source "$HOME/.conda/etc/profile.d/conda.sh"
+else
+  echo "Could not find conda. Tried command lookup, ~/miniconda3, and ~/.conda." >&2
+  exit 1
+fi
 conda activate {shlex.quote(settings.conda_env)}
+set -u
 
 export OMP_NUM_THREADS="${{SLURM_CPUS_PER_TASK:-{settings.cpus_per_task}}}"
 export MKL_NUM_THREADS="${{SLURM_CPUS_PER_TASK:-{settings.cpus_per_task}}}"
