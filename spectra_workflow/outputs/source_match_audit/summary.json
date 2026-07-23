@@ -1,0 +1,53 @@
+{
+  "chimera_dir": "/home/nicho/GRAHSP_my/grahspj_latest/data/chimeras-2023-10-11",
+  "chimera_fits": "/home/nicho/GRAHSP_my/grahspj_latest/data/chimeras-2023-10-11/chimeras-fullinfo.fits",
+  "coordinate_fallback_enabled": true,
+  "coordinate_match_arcsec": 1.0,
+  "data_dir": "/home/nicho/GRAHSP_my/data",
+  "dr7q_catalog": "/home/nicho/GRAHSP_my/data/dr7q_photometry/dr7qso.fit",
+  "fit_manifest": "",
+  "fit_manifest_restricted": false,
+  "galaxy_match_source_counts": {
+    "coordinate_fallback": 1740,
+    "explicit_and_header": 24,
+    "explicit_zcosmos_match": 2677,
+    "header_or_readme": 471,
+    "none": 14638
+  },
+  "n_combined_galaxy_cosmos_ids": 20749,
+  "n_coordinate_diagnostics": 2,
+  "n_coordinate_indexed_dr7q_spectra": 8983,
+  "n_coordinate_indexed_zcosmos_spectra": 20045,
+  "n_dr7q_catalog_diagnostics": 0,
+  "n_dr7q_catalog_names": 140146,
+  "n_dr7q_coordinate_diagnostics": 0,
+  "n_dr7q_spectra": 8983,
+  "n_explicit_zcosmos_cosmos_ids": 769,
+  "n_explicit_zcosmos_diagnostics": 0,
+  "n_fit_manifest_ids": 0,
+  "n_header_or_readme_diagnostics": 2,
+  "n_header_or_readme_galaxy_cosmos_ids": 19998,
+  "n_provenance_rows": 19550,
+  "n_rows_audited": 19550,
+  "n_unique_missing_dr7q_keys": 2574,
+  "n_unique_missing_galaxy_cosmos_ids": 1214,
+  "project_root": "/home/nicho/GRAHSP_my/My-AGN-research-repository",
+  "provenance_mode": "rebuilt_from_chimera_fits",
+  "provenance_source": "/home/nicho/GRAHSP_my/grahspj_latest/data/chimeras-2023-10-11/chimeras-fullinfo.fits",
+  "qso_coordinate_fallback_enabled": true,
+  "qso_coordinate_match_arcsec": 1.0,
+  "qso_match_source_counts": {
+    "exact_plate_mjd_fiber": 15724,
+    "none": 3826
+  },
+  "qso_missing_reason_counts": {
+    "catalog_match_but_spectrum_not_downloaded_locally": 3826
+  },
+  "status_counts": {
+    "matched": 4195,
+    "missing_both": 3109,
+    "missing_dr7q": 717,
+    "missing_galaxy": 11529
+  },
+  "zcosmos_matches_path": "/home/nicho/GRAHSP_my/My-AGN-research-repository/spectra_workflow/config/chimera_zcosmos_alpha_delta_matches.csv"
+}
