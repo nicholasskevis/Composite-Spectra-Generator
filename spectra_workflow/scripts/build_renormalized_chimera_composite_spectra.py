@@ -48,6 +48,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-scale", type=float, default=0.05)
     parser.add_argument("--max-scale", type=float, default=20.0)
     parser.add_argument("--error-floor-fraction", type=float, default=0.10)
+    parser.add_argument(
+        "--resampling-method",
+        choices=("flux-conserving", "interp"),
+        default="flux-conserving",
+        help="How to put components on the common grid after resolution matching. Default: flux-conserving.",
+    )
+    parser.add_argument(
+        "--no-resolution-match",
+        action="store_true",
+        help="Disable Gaussian LSF matching before combining galaxy and QSO spectra.",
+    )
+    parser.add_argument(
+        "--galaxy-resolving-power",
+        type=float,
+        default=600.0,
+        help="Assumed galaxy-spectrum resolving power R=lambda/dlambda. Default: 600.",
+    )
+    parser.add_argument(
+        "--qso-resolving-power",
+        type=float,
+        default=2000.0,
+        help="Assumed SDSS/DR7Q resolving power R=lambda/dlambda. Default: 2000.",
+    )
+    parser.add_argument(
+        "--resolution-kernel-sigma-width",
+        type=float,
+        default=4.0,
+        help="Gaussian convolution half-width in sigma units. Default: 4.",
+    )
     parser.add_argument("--min-valid-pixels", type=int, default=50)
     parser.add_argument("--max-rows", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
@@ -95,6 +124,24 @@ def flux_lambda_to_mjy(wavelength_a: np.ndarray | float, flux_lambda: np.ndarray
     return out
 
 
+def apply_error_floor(error: np.ndarray, flux: np.ndarray, fraction: float) -> np.ndarray:
+    error = np.asarray(error, dtype=float)
+    flux = np.asarray(flux, dtype=float)
+    floor = np.maximum(abs(float(fraction)) * np.abs(flux), 1.0e-300)
+    return np.where(np.isfinite(error) & (error > 0.0), np.maximum(error, floor), floor)
+
+
+def interp_positive_error(module: Any, spec: dict[str, object], grid: np.ndarray) -> np.ndarray:
+    if hasattr(module, "interp_positive_error"):
+        return module.interp_positive_error(spec, grid)
+    wave = np.asarray(spec["wavelength_target_obs_angstrom"], dtype=float)
+    err = np.asarray(spec["flux_density_err_extincted"], dtype=float)
+    valid = np.isfinite(wave) & np.isfinite(err) & (err > 0.0)
+    if np.count_nonzero(valid) < 2:
+        return np.full_like(grid, np.nan, dtype=float)
+    return np.interp(grid, wave[valid], err[valid], left=np.nan, right=np.nan)
+
+
 def load_component_module(project_root: Path):
     candidates = [
         Path(__file__).resolve().with_name("chimera_composite_spectra.py"),
@@ -135,8 +182,11 @@ def source_path(row: dict[str, str], key: str) -> Path:
     return path
 
 
-def prepare_components(module: Any, row: dict[str, str]) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, dict[str, Any]]:
+def prepare_components(
+    module: Any, row: dict[str, str], args: argparse.Namespace
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, dict[str, Any]]:
     chimera_redshift = parse_float(row["chimera_redshift"])
+    target_redshift, target_redshift_source = module.best_galaxy_redshift(row, chimera_redshift)
     dr7q_redshift = parse_float(row["dr7q_redshift"])
     qso_weight = parse_float(row["chimera_qso_weight"])
     cosmos_ebv = parse_float(row.get("cosmos_ebv"))
@@ -144,12 +194,20 @@ def prepare_components(module: Any, row: dict[str, str]) -> tuple[np.ndarray, np
         cosmos_ebv = 0.0
 
     galaxy = module.shift_flux_density_to_redshift(
-        module.load_zcosmos_spectrum(source_path(row, "galaxy_spectrum_path"), chimera_redshift),
-        chimera_redshift,
+        module.load_zcosmos_spectrum(source_path(row, "galaxy_spectrum_path"), target_redshift),
+        target_redshift,
     )
     qso = module.shift_flux_density_to_redshift(
         module.load_sdss_dr7q_spectrum(source_path(row, "qso_spectrum_path"), dr7q_redshift),
-        chimera_redshift,
+        target_redshift,
+    )
+    galaxy, qso, resolution_meta = module.match_spectral_resolution(
+        galaxy,
+        qso,
+        galaxy_r=args.galaxy_resolving_power,
+        qso_r=args.qso_resolving_power,
+        enabled=not args.no_resolution_match,
+        nsigma=args.resolution_kernel_sigma_width,
     )
     for spec in (galaxy, qso):
         attenuated, _ = module.apply_foreground_extinction(
@@ -159,17 +217,50 @@ def prepare_components(module: Any, row: dict[str, str]) -> tuple[np.ndarray, np
             apply=True,
         )
         spec["flux_density_extincted"] = attenuated
+        err_attenuated, _ = module.apply_foreground_extinction(
+            spec["wavelength_target_obs_angstrom"],
+            spec["flux_density_err_target_obs"],
+            cosmos_ebv,
+            apply=True,
+        )
+        spec["flux_density_err_extincted"] = err_attenuated
 
-    common_wave = module.make_common_grid([galaxy, qso])
-    galaxy_flux = module.interp_flux(galaxy, common_wave)
-    qso_flux = module.interp_flux(qso, common_wave)
+    common_wave = module.galaxy_observed_grid(galaxy, qso)
+    if hasattr(module, "resample_flux_density"):
+        galaxy_flux, galaxy_err, galaxy_coverage = module.resample_flux_density(
+            galaxy,
+            common_wave,
+            method=args.resampling_method,
+        )
+        qso_flux, qso_err, qso_coverage = module.resample_flux_density(
+            qso,
+            common_wave,
+            method=args.resampling_method,
+        )
+    else:
+        galaxy_flux = module.interp_flux(galaxy, common_wave)
+        qso_flux = module.interp_flux(qso, common_wave)
+        galaxy_err = interp_positive_error(module, galaxy, common_wave)
+        qso_err = interp_positive_error(module, qso, common_wave)
+        galaxy_coverage = np.where(np.isfinite(galaxy_flux), 1.0, 0.0)
+        qso_coverage = np.where(np.isfinite(qso_flux), 1.0, 0.0)
     meta = {
         "chimera_redshift": chimera_redshift,
+        "target_redshift": target_redshift,
+        "target_redshift_source": target_redshift_source,
+        "galaxy_spectroscopic_redshift": target_redshift,
         "dr7q_redshift": dr7q_redshift,
         "chimera_qso_weight": qso_weight,
         "cosmos_ebv": cosmos_ebv,
+        "galaxy_error_column": galaxy.get("flux_density_err_column", ""),
+        "qso_error_source": "ivar" if np.any(np.isfinite(qso.get("flux_density_err_obs", []))) else "",
+        "resampling_method": args.resampling_method,
+        "resampling_note": "Flux-conserving mode rebins flux density through pixel-edge overlap integrals after resolution matching.",
+        "galaxy_rebin_min_coverage": float(np.nanmin(galaxy_coverage[np.isfinite(galaxy_flux)])) if np.any(np.isfinite(galaxy_flux)) else np.nan,
+        "qso_rebin_min_coverage": float(np.nanmin(qso_coverage[np.isfinite(qso_flux)])) if np.any(np.isfinite(qso_flux)) else np.nan,
     }
-    return common_wave, galaxy_flux, qso_flux, qso_weight, meta
+    meta.update(resolution_meta)
+    return common_wave, galaxy_flux, qso_flux, galaxy_err, qso_err, qso_weight, meta
 
 
 def estimate_galaxy_scale(
@@ -225,7 +316,7 @@ def build_one(
     output_dir: Path,
 ) -> dict[str, Any]:
     chimera_id = row["chimera_id"]
-    wave, galaxy_flux, qso_flux, qso_weight, meta = prepare_components(module, row)
+    wave, galaxy_flux, qso_flux, galaxy_err, qso_err, qso_weight, meta = prepare_components(module, row, args)
     weighted_qso_flux = qso_weight * qso_flux
     galaxy_scale, scale_diagnostics = estimate_galaxy_scale(
         wave,
@@ -245,15 +336,21 @@ def build_one(
 
     renorm_galaxy_flux = galaxy_scale * galaxy_flux
     composite_flux_lambda = renorm_galaxy_flux + weighted_qso_flux
+    renorm_galaxy_err = abs(galaxy_scale) * galaxy_err
+    weighted_qso_err = abs(qso_weight) * qso_err
+    composite_err_lambda_raw = np.sqrt(renorm_galaxy_err**2 + weighted_qso_err**2)
+    composite_err_lambda = apply_error_floor(
+        composite_err_lambda_raw,
+        composite_flux_lambda,
+        args.error_floor_fraction,
+    )
     flux_mjy = flux_lambda_to_mjy(wave, composite_flux_lambda)
+    err_mjy = flux_lambda_to_mjy(wave, composite_err_lambda)
     finite = np.isfinite(wave) & np.isfinite(flux_mjy)
     positive = finite & (flux_mjy > 0.0)
-    mask = positive
+    mask = positive & np.isfinite(err_mjy) & (err_mjy > 0.0)
     if int(np.count_nonzero(mask)) < args.min_valid_pixels:
         raise RuntimeError(f"only {int(np.count_nonzero(mask))} valid positive pixels")
-
-    err_mjy = np.full_like(np.asarray(flux_mjy, dtype=float), np.nan)
-    err_mjy[finite] = np.maximum(np.abs(np.asarray(flux_mjy, dtype=float)[finite]) * args.error_floor_fraction, 1.0e-30)
 
     safe_id = safe_filename(chimera_id)
     spectrum_path = output_dir / "spectra" / f"{safe_id}_renorm_spectrum.ecsv"
@@ -272,14 +369,34 @@ def build_one(
                 "cosmos_id": row.get("cosmos_id", ""),
                 "dr7q_spectrum_id": row.get("dr7q_spectrum_id", ""),
                 "chimera_redshift": meta["chimera_redshift"],
+                "target_redshift": meta["target_redshift"],
+                "target_redshift_source": meta["target_redshift_source"],
+                "galaxy_spectroscopic_redshift": meta["galaxy_spectroscopic_redshift"],
                 "dr7q_redshift": meta["dr7q_redshift"],
                 "chimera_qso_weight": qso_weight,
                 "cosmos_ebv": meta["cosmos_ebv"],
                 "galaxy_spectrum_path": row["galaxy_spectrum_path"],
                 "qso_spectrum_path": row["qso_spectrum_path"],
+                "galaxy_error_column": meta["galaxy_error_column"],
+                "qso_error_source": meta["qso_error_source"],
+                "resolution_match_enabled": meta["resolution_match_enabled"],
+                "resolution_match_method": meta["resolution_match_method"],
+                "galaxy_resolving_power_assumed": meta["galaxy_resolving_power_assumed"],
+                "qso_resolving_power_assumed": meta["qso_resolving_power_assumed"],
+                "target_resolving_power": meta["target_resolving_power"],
+                "resolution_kernel_sigma_width": meta["resolution_kernel_sigma_width"],
+                "galaxy_resolution_convolved": meta["galaxy_resolution_convolved"],
+                "qso_resolution_convolved": meta["qso_resolution_convolved"],
+                "resolution_match_note": meta["resolution_match_note"],
+                "resampling_method": meta["resampling_method"],
+                "resampling_note": meta["resampling_note"],
+                "galaxy_rebin_min_coverage": meta["galaxy_rebin_min_coverage"],
+                "qso_rebin_min_coverage": meta["qso_rebin_min_coverage"],
                 "renorm_mode": args.renorm_mode,
                 "galaxy_scale": galaxy_scale,
                 "error_floor_fraction": args.error_floor_fraction,
+                "error_propagation": "sqrt((galaxy_scale * zCOSMOS_error)^2 + (chimera_qso_weight * SDSS_DR7Q_error)^2), then error floor",
+                "wavelength_grid": "native zCOSMOS galaxy observed-frame grid clipped to QSO overlap",
                 "format": "renormalized Chimera publication workflow SpectroscopyData input",
                 "flux_unit": "mJy",
                 "wave_unit": "Angstrom",
@@ -298,6 +415,9 @@ def build_one(
         "cosmos_id": row.get("cosmos_id", ""),
         "dr7q_spectrum_id": row.get("dr7q_spectrum_id", ""),
         "chimera_redshift": row.get("chimera_redshift", ""),
+        "target_redshift": meta["target_redshift"],
+        "target_redshift_source": meta["target_redshift_source"],
+        "galaxy_spectroscopic_redshift": meta["galaxy_spectroscopic_redshift"],
         "dr7q_redshift": row.get("dr7q_redshift", ""),
         "chimera_qso_weight": qso_weight,
         "renorm_mode": args.renorm_mode,
@@ -309,6 +429,11 @@ def build_one(
         "wave_max": float(np.nanmax(wave[mask])),
         "galaxy_spectrum_path": row["galaxy_spectrum_path"],
         "qso_spectrum_path": row["qso_spectrum_path"],
+        "resolution_match_enabled": meta["resolution_match_enabled"],
+        "target_resolving_power": meta["target_resolving_power"],
+        "galaxy_resolution_convolved": meta["galaxy_resolution_convolved"],
+        "qso_resolution_convolved": meta["qso_resolution_convolved"],
+        "resampling_method": meta["resampling_method"],
     }
     for item in scale_diagnostics:
         band = item["band"]

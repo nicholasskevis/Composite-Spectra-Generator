@@ -83,6 +83,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--no-extinction", action="store_true")
     parser.add_argument("--error-floor-fraction", type=float, default=0.10)
+    parser.add_argument(
+        "--resampling-method",
+        choices=("flux-conserving", "interp"),
+        default="flux-conserving",
+    )
+    parser.add_argument("--no-resolution-match", action="store_true")
+    parser.add_argument("--galaxy-resolving-power", type=float, default=600.0)
+    parser.add_argument("--qso-resolving-power", type=float, default=2000.0)
+    parser.add_argument("--resolution-kernel-sigma-width", type=float, default=4.0)
     parser.add_argument("--min-valid-pixels", type=int, default=50)
     parser.add_argument("--write-full-table", action="store_true")
     parser.add_argument("--write-rest-table", action="store_true")
@@ -154,7 +163,7 @@ def main() -> int:
         args.zcosmos_matches
         or WORKFLOW_ROOT / "config" / "chimera_zcosmos_alpha_delta_matches.csv"
     ).expanduser().resolve()
-    output_root = (args.output_root or WORKFLOW_ROOT / "outputs" / "grahspj_latest").expanduser().resolve()
+    output_root = (args.output_root or WORKFLOW_ROOT / "outputs").expanduser().resolve()
 
     source_audit_dir = output_root / "source_match_audit"
     rebuilt_provenance = source_audit_dir / "rebuilt_chimera_provenance.csv"
@@ -202,6 +211,11 @@ def main() -> int:
     append_bool_arg(build_cmd, "--overwrite", args.overwrite)
     append_bool_arg(build_cmd, "--no-extinction", args.no_extinction)
     append_value_arg(build_cmd, "--error-floor-fraction", args.error_floor_fraction)
+    append_value_arg(build_cmd, "--resampling-method", args.resampling_method)
+    append_bool_arg(build_cmd, "--no-resolution-match", args.no_resolution_match)
+    append_value_arg(build_cmd, "--galaxy-resolving-power", args.galaxy_resolving_power)
+    append_value_arg(build_cmd, "--qso-resolving-power", args.qso_resolving_power)
+    append_value_arg(build_cmd, "--resolution-kernel-sigma-width", args.resolution_kernel_sigma_width)
     append_value_arg(build_cmd, "--min-valid-pixels", args.min_valid_pixels)
     append_bool_arg(build_cmd, "--write-full-table", args.write_full_table)
     append_bool_arg(build_cmd, "--write-rest-table", args.write_rest_table)

@@ -60,6 +60,10 @@ All generated workflow products are written under `spectra_workflow/outputs/` by
 - `scripts/search_sdss_replacement_spectra.py`
   Searches SDSS by QSO sky coordinate for replacement spectra and writes a QSO override table for the builder.
 
+- `scripts/plot_safe_spectra_pdf.py`
+  Selects 100 accepted safe spectra and writes a one-object-per-page PDF showing
+  the galaxy, weighted QSO, and safe composite spectra.
+
 ## Recommended Order
 
 Run from the repo root:
@@ -78,6 +82,7 @@ python spectra_workflow/scripts/run_full_spectra_workflow.py \
   --data-dir /home/nicho/GRAHSP_my/data \
   --chimera-dir /home/nicho/GRAHSP_my/grahspj_latest/data/chimeras-2023-10-11 \
   --fit-manifest fit_manifest.csv \
+  --ignore-fit-manifest \
   --zcosmos-matches spectra_workflow/config/chimera_zcosmos_alpha_delta_matches.csv \
   --coord-match-arcsec 1.0 \
   --qso-coord-match-arcsec 1.0 \
@@ -87,13 +92,25 @@ python spectra_workflow/scripts/run_full_spectra_workflow.py \
 This writes:
 
 - `spectra_workflow/outputs/source_match_audit/`
-- `spectra_workflow/outputs/source_match_audit/`
 - `spectra_workflow/outputs/all_chimera_spectra/`
 - `spectra_workflow/outputs/chimera_composite_spectra_audit/`
 - `spectra_workflow/outputs/safe_chimera_spectra/`
 - `spectra_workflow/outputs/workflow_summary.json`
 
 Use `--dry-run` first if you want to print the exact commands without executing them. Use `--limit 100` for a quick smoke test.
+
+By default the builder shifts the QSO to the exact best galaxy spectroscopic redshift, keeps the native zCOSMOS observed-frame wavelength grid, degrades the higher-resolution spectrum to the lower assumed resolving power, and then uses flux-conserving pixel-overlap resampling before combining. The current defaults are `--galaxy-resolving-power 600`, `--qso-resolving-power 2000`, and `--resampling-method flux-conserving`, so the SDSS/DR7Q QSO spectrum is usually smoothed to the zCOSMOS-like resolution and rebinned by integrated pixel overlap. Use `--no-resolution-match` or `--resampling-method interp` only for diagnostics.
+
+### Plot 100 safe spectra
+
+```bash
+python spectra_workflow/scripts/plot_safe_spectra_pdf.py
+```
+
+The default selection is reproducibly randomized with seed 42 and is written to
+`spectra_workflow/outputs/safe_chimera_spectra/safe_spectra_components_100.pdf`.
+Use `--seed`, `--number`, and `--output` to customize it, or `--first` to use
+the first rows in the safe manifest.
 
 The one-command workflow passes the source-match audit products into the builder. This matters because the audit can recover galaxy spectra by coordinate fallback; using `build_all_chimera_composite_spectra.py` directly without `--source-match-audit` only uses the ID/header indices and can miss many spectra that the audit found.
 
@@ -172,7 +189,9 @@ Then rebuild spectra using the replacement table:
 python spectra_workflow/scripts/run_full_spectra_workflow.py \
   --project-root /home/nicho/GRAHSP_my/My-AGN-research-repository \
   --data-dir /home/nicho/GRAHSP_my/data \
+  --chimera-dir /home/nicho/GRAHSP_my/grahspj_latest/data/chimeras-2023-10-11 \
   --fit-manifest fit_manifest.csv \
+  --ignore-fit-manifest \
   --zcosmos-matches spectra_workflow/config/chimera_zcosmos_alpha_delta_matches.csv \
   --qso-spectrum-overrides spectra_workflow/outputs/sdss_replacement_spectra/qso_spectrum_overrides.csv \
   --overwrite
@@ -231,13 +250,14 @@ python spectra_workflow/scripts/build_all_chimera_composite_spectra.py \
   --data-dir /home/nicho/GRAHSP_my/data \
   --provenance spectra_workflow/outputs/source_match_audit/rebuilt_chimera_provenance.csv \
   --fit-manifest fit_manifest.csv \
+  --ignore-fit-manifest \
   --zcosmos-matches spectra_workflow/config/chimera_zcosmos_alpha_delta_matches.csv \
   --source-match-audit spectra_workflow/outputs/source_match_audit/spectrum_source_match_audit.csv \
   --output-dir spectra_workflow/outputs/all_chimera_spectra \
   --overwrite
 ```
 
-By default the builder also uses `fit_manifest.csv` if it exists, so it only creates spectra for the active fitting sample. Use `--ignore-fit-manifest` only if you really want to inspect every row in the rebuilt provenance table.
+By default the builder also uses `fit_manifest.csv` if it exists, so it only creates spectra for the active fitting sample. Use `--ignore-fit-manifest` when you want every available spectrum from the rebuilt provenance table.
 
 This writes:
 
@@ -324,7 +344,7 @@ python hpc/run.xsh \
 
 ## Process Notes 
 
-This script rebuilds a composite spectrum from scratch for one Chimera object. It reads `chimera_provenance.csv`, finds the matching COSMOS/zCOSMOS galaxy spectrum and DR7Q AGN spectrum, standardizes wavelength and flux-density units, shifts the spectra onto the Chimera redshift frame, applies COSMOS foreground extinction, and combines them as:
+This script rebuilds a composite spectrum from scratch for one Chimera object. It reads `chimera_provenance.csv`, finds the matching COSMOS/zCOSMOS galaxy spectrum and DR7Q AGN spectrum, standardizes wavelength and flux-density units, shifts the QSO spectrum onto the exact galaxy spectroscopic redshift frame, matches spectral resolution by smoothing the higher-resolution component down to the lower-resolution component, applies COSMOS foreground extinction, and combines them as:
 
 ```text
 F_lambda,composite = F_lambda,galaxy + chimera_qso_weight * F_lambda,qso
@@ -344,7 +364,7 @@ The notebook workflow is:
 
 5. Convert any logarithmic SDSS wavelength grid into Angstrom, put SDSS flux density into `erg cm^-2 s^-1 Angstrom^-1`, and keep zCOSMOS flux density in its native physical units.
 
-6. Shift each spectrum through rest frame and back to the Chimera observed frame. For flux density, the transformation is:
+6. Shift the QSO spectrum through rest frame and back to the best available galaxy spectroscopic redshift. The galaxy spectrum keeps its native observed-frame wavelength grid. For flux density, the redshift transformation is:
 
 ```text
 lambda_rest = lambda_obs / (1 + z_source)
@@ -352,16 +372,26 @@ F_lambda_rest = F_lambda_obs * (1 + z_source)
 F_lambda_target_obs = F_lambda_rest / (1 + z_chimera)
 ```
 
-7. Apply wavelength-dependent Milky Way foreground attenuation using the COSMOS `EBV` value. This creates a synthetic observed Chimera spectrum along the COSMOS line of sight. It is not a dereddening step; if intrinsic spectra are needed, skip this attenuation.
+7. Match the spectral resolutions before combining. The workflow assumes zCOSMOS/CESAM galaxy spectra have resolving power `R = 600` and SDSS/DR7Q QSO spectra have resolving power `R = 2000` unless told otherwise. It computes the lower target resolution and applies a wavelength-dependent Gaussian convolution only to the higher-resolution component:
 
-8. Create an observed-frame grid over the overlapping wavelength coverage and interpolate the galaxy and QSO flux densities onto it. The composite is formed in flux-density units with the Chimera QSO weight.
+```text
+sigma_kernel(lambda)^2 = sigma_target(lambda)^2 - sigma_source(lambda)^2
+```
 
-9. Convert flux density into integrated flux per spectral bin for downstream work that needs actual bin fluxes. The composite itself is summed in flux-density units first, which keeps the interpolation physically consistent.
+If a component is already at the lower resolution, it is left alone. The workflow never deconvolves or sharpens a spectrum. The ECSV metadata records the assumed resolving powers and which component was convolved. If real per-object or per-pixel LSF curves become available, those should replace the current constant-`R` approximation.
 
-10. Write the matched component spectra and composite to an ECSV table with observed-frame wavelengths, flux densities, and per-bin fluxes.
+8. Propagate source-spectrum errors through the same operations. zCOSMOS `ERR` columns are carried forward where present; SDSS inverse variance is converted to flux-density error. During resolution smoothing, errors are propagated in quadrature through the normalized Gaussian weights.
 
-11. Plot the integrated flux in each observed-frame wavelength bin. These values are `F_lambda * delta_lambda`, with units of `erg cm^-2 s^-1`.
+9. Apply wavelength-dependent Milky Way foreground attenuation using the COSMOS `EBV` value. This creates a synthetic observed Chimera spectrum along the COSMOS line of sight. It is not a dereddening step; if intrinsic spectra are needed, skip this attenuation.
 
-12. Plot the galaxy spectrum, weighted QSO spectrum, and summed composite on the common observed-frame grid.
+10. Create the common observed-frame grid from the native zCOSMOS galaxy observed-frame pixels clipped to the QSO wavelength overlap. Rebin each component onto that grid using flux-conserving pixel-edge overlaps: each source pixel contributes its integrated flux density times overlap width to each target pixel, and the target integrated flux is divided by the target pixel width to recover flux density. This preserves integrated line fluxes and absorption equivalent widths better than point interpolation. `--resampling-method interp` restores the older interpolation behavior for diagnostics only.
 
-13. Optionally divide the common wavelength grid by `(1 + z_chimera)` and transform the composite flux density to rest-frame units for line identification and diagnostics.
+11. Convert flux density into integrated flux per spectral bin for downstream work that needs actual bin fluxes. The composite itself is summed in flux-density units first, which keeps the interpolation physically consistent.
+
+12. Write the matched component spectra and composite to an ECSV table with observed-frame wavelengths, flux densities, propagated errors, masks, metadata, and per-bin fluxes.
+
+13. Plot the integrated flux in each observed-frame wavelength bin. These values are `F_lambda * delta_lambda`, with units of `erg cm^-2 s^-1`.
+
+14. Plot the galaxy spectrum, weighted QSO spectrum, and summed composite on the common observed-frame grid.
+
+15. Optionally divide the common wavelength grid by `(1 + z_chimera)` and transform the composite flux density to rest-frame units for line identification and diagnostics.
