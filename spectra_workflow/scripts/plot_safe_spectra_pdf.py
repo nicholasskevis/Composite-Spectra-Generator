@@ -36,6 +36,12 @@ DEFAULT_MANIFEST = (
 DEFAULT_OUTPUT = (
     WORKFLOW_ROOT / "outputs" / "safe_chimera_spectra" / "safe_spectra_components_100.pdf"
 )
+DEFAULT_SOURCE_CANDIDATES = (
+    WORKFLOW_ROOT
+    / "outputs"
+    / "all_chimera_spectra"
+    / "chimera_spectrum_source_candidates.csv"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,6 +53,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--source-candidates",
+        type=Path,
+        default=DEFAULT_SOURCE_CANDIDATES,
+        help=(
+            "Optional scored source-candidate CSV from build_all_chimera_composite_spectra.py. "
+            "Used to label each plotted spectrum with its selected source origin."
+        ),
+    )
     parser.add_argument("--number", type=int, default=100)
     parser.add_argument(
         "--seed",
@@ -79,6 +94,71 @@ def resolve_path(raw_path: str, manifest: Path) -> Path:
         if candidate.is_file():
             return candidate.resolve()
     raise FileNotFoundError(f"could not resolve {raw_path!r}")
+
+
+def read_selected_source_candidates(path: Path) -> dict[str, dict[str, str]]:
+    if not path.is_file():
+        return {}
+    selected: dict[str, dict[str, str]] = {}
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            chimera_id = row.get("chimera_id", "")
+            if not chimera_id:
+                continue
+            is_selected = row.get("selected_for_composite", "").lower() == "true"
+            if is_selected or chimera_id not in selected:
+                selected[chimera_id] = row
+    return selected
+
+
+def infer_survey_label(path: str, *, role: str) -> str:
+    text = str(path).lower()
+    if "zcosmos" in text:
+        return "zCOSMOS"
+    if "cesam_vuds" in text or "vuds" in text:
+        return "VUDS/CESAM"
+    if "cesam_vudz" in text or "vudz" in text:
+        return "VUDz/CESAM"
+    if "dr7q" in text:
+        return "SDSS DR7Q"
+    if "sdss" in text or "spec-" in Path(str(path)).name.lower():
+        return "SDSS"
+    if "desi" in text or "sparcl" in text:
+        return "DESI"
+    return f"unknown {role} source"
+
+
+def format_source_note(
+    table: Table,
+    row: dict[str, str],
+    selected_sources: dict[str, dict[str, str]],
+) -> tuple[str, str, str]:
+    chimera_id = row.get("chimera_id", table.meta.get("chimera_id", ""))
+    galaxy_path = row.get("galaxy_spectrum_path") or str(table.meta.get("galaxy_spectrum_path", ""))
+    qso_path = row.get("qso_spectrum_path") or str(table.meta.get("qso_spectrum_path", ""))
+    candidate = selected_sources.get(chimera_id, {})
+
+    galaxy_survey = infer_survey_label(galaxy_path, role="galaxy")
+    qso_survey = infer_survey_label(qso_path, role="QSO")
+    origin = candidate.get("candidate_source_origin") or table.meta.get("galaxy_spectrum_match_source", "")
+    snr = candidate.get("galaxy_spectrum_snr_median") or table.meta.get("galaxy_spectrum_snr_median", "")
+    candidate_count = candidate.get("galaxy_spectrum_candidate_count") or table.meta.get("galaxy_spectrum_candidate_count", "")
+
+    pieces = [galaxy_survey]
+    if origin:
+        pieces.append(str(origin).replace("_", " "))
+    if candidate_count not in ("", None):
+        pieces.append(f"{candidate_count} candidate(s)")
+    if snr not in ("", None):
+        try:
+            pieces.append(f"median S/N={float(snr):.2g}")
+        except (TypeError, ValueError):
+            pieces.append(f"median S/N={snr}")
+
+    galaxy_note = "; ".join(pieces)
+    qso_note = qso_survey
+    summary_note = f"galaxy: {galaxy_note} | QSO: {qso_note}"
+    return galaxy_note, qso_note, summary_note
 
 
 def component_fluxes_mjy(table: Table) -> tuple[np.ndarray, np.ndarray]:
@@ -122,7 +202,12 @@ def robust_limits(*arrays: np.ndarray) -> tuple[float, float] | None:
     return float(low - padding), float(high + padding)
 
 
-def add_page(pdf, row: dict[str, str], manifest: Path) -> None:
+def add_page(
+    pdf,
+    row: dict[str, str],
+    manifest: Path,
+    selected_sources: dict[str, dict[str, str]],
+) -> None:
     import matplotlib.pyplot as plt
 
     spectrum_path = resolve_path(row["spectrum_path"], manifest)
@@ -148,9 +233,10 @@ def add_page(pdf, row: dict[str, str], manifest: Path) -> None:
         raise ValueError(f"{row['chimera_id']} has no valid safe pixels")
 
     qso_weight = float(table.meta["chimera_qso_weight"])
+    galaxy_note, qso_note, summary_note = format_source_note(table, row, selected_sources)
     panels = (
-        ("Galaxy spectrum", galaxy, "#2878B5"),
-        (f"QSO spectrum × {qso_weight:g}", weighted_qso, "#D95319"),
+        (f"Galaxy spectrum ({galaxy_note})", galaxy, "#2878B5"),
+        (f"QSO spectrum × {qso_weight:g} ({qso_note})", weighted_qso, "#D95319"),
         ("Safe composite spectrum", composite, "black"),
     )
     fig, axes = plt.subplots(3, 1, figsize=(11, 8.5), sharex=True, constrained_layout=True)
@@ -169,7 +255,7 @@ def add_page(pdf, row: dict[str, str], manifest: Path) -> None:
     fig.suptitle(
         f"{row['chimera_id']}   "
         f"z={float(table.meta['chimera_redshift']):.4f}   "
-        f"QSO weight={qso_weight:g}",
+        f"QSO weight={qso_weight:g}\n{summary_note}",
         fontsize=12,
     )
     pdf.savefig(fig)
@@ -180,6 +266,7 @@ def main() -> int:
     args = parse_args()
     manifest = args.manifest.expanduser().resolve()
     output = args.output.expanduser().resolve()
+    source_candidates = args.source_candidates.expanduser().resolve()
     if args.number < 1:
         raise ValueError("--number must be at least 1")
 
@@ -201,11 +288,17 @@ def main() -> int:
 
     from matplotlib.backends.backend_pdf import PdfPages
 
+    selected_sources = read_selected_source_candidates(source_candidates)
+    if selected_sources:
+        print(f"Loaded selected source labels for {len(selected_sources)} Chimera IDs from {source_candidates}")
+    else:
+        print(f"No source-candidate labels found at {source_candidates}; inferring labels from paths")
+
     failures: list[str] = []
     with PdfPages(output) as pdf:
         for index, row in enumerate(selected, start=1):
             try:
-                add_page(pdf, row, manifest)
+                add_page(pdf, row, manifest, selected_sources)
             except Exception as exc:
                 failures.append(f"{row.get('chimera_id', '<unknown>')}: {exc}")
             else:
