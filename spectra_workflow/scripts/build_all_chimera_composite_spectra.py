@@ -290,6 +290,18 @@ def load_source_match_audit(path: Path | None, project_root: Path) -> dict[str, 
     return out
 
 
+def dedupe_paths(paths: list[Path]) -> list[Path]:
+    out: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        resolved = path.expanduser().resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        out.append(resolved)
+    return out
+
+
 def parse_zcosmos_readme_mappings(directory: Path) -> dict[int, list[Path]]:
     mapping: dict[int, list[Path]] = {}
     for readme in directory.glob("readme*.txt"):
@@ -519,6 +531,111 @@ def load_zcosmos_spectrum(path: Path, chimera_redshift: float) -> dict[str, obje
         "flux_density_err_column": err_column or "",
         "source_redshift": chimera_redshift,
     }
+
+
+def robust_mad(values: np.ndarray) -> float:
+    values = np.asarray(values, dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return float("nan")
+    median = float(np.nanmedian(values))
+    return float(1.4826 * np.nanmedian(np.abs(values - median)))
+
+
+def spectrum_snr_summary(spec: dict[str, object]) -> dict[str, object]:
+    wave = np.asarray(spec["wavelength_obs_angstrom"], dtype=float)
+    flux = np.asarray(spec["flux_density_obs"], dtype=float)
+    err = np.asarray(spec["flux_density_err_obs"], dtype=float)
+    valid_wave = np.isfinite(wave) & (wave > 0.0)
+    valid_error = valid_wave & np.isfinite(flux) & np.isfinite(err) & (err > 0.0)
+    if np.count_nonzero(valid_error) >= 5:
+        snr = np.abs(flux[valid_error]) / err[valid_error]
+        source = "error_column"
+    else:
+        valid_flux = valid_wave & np.isfinite(flux)
+        flux_valid = flux[valid_flux]
+        if flux_valid.size < 5:
+            snr = np.asarray([], dtype=float)
+        else:
+            noise = robust_mad(np.diff(flux_valid)) / np.sqrt(2.0)
+            signal = float(np.nanmedian(np.abs(flux_valid)))
+            snr = np.asarray([signal / noise], dtype=float) if np.isfinite(noise) and noise > 0.0 else np.asarray([], dtype=float)
+        source = "flux_mad_fallback"
+
+    snr = snr[np.isfinite(snr) & (snr >= 0.0)]
+    return {
+        "galaxy_spectrum_snr_source": source if snr.size else "",
+        "galaxy_spectrum_snr_median": float(np.nanmedian(snr)) if snr.size else np.nan,
+        "galaxy_spectrum_snr_p16": float(np.nanpercentile(snr, 16)) if snr.size else np.nan,
+        "galaxy_spectrum_snr_p84": float(np.nanpercentile(snr, 84)) if snr.size else np.nan,
+        "galaxy_spectrum_snr_n_pixels": int(np.count_nonzero(valid_error)) if source == "error_column" else int(flux[np.isfinite(flux)].size),
+        "galaxy_spectrum_wave_min": float(np.nanmin(wave[valid_wave])) if np.any(valid_wave) else np.nan,
+        "galaxy_spectrum_wave_max": float(np.nanmax(wave[valid_wave])) if np.any(valid_wave) else np.nan,
+        "galaxy_spectrum_error_column": spec.get("flux_density_err_column", ""),
+    }
+
+
+def score_galaxy_spectrum_candidates(
+    *,
+    chimera_id: str,
+    cosmos_id: int,
+    row_index: int,
+    candidate_paths: list[Path],
+    candidate_origins: dict[Path, str],
+    target_redshift: float,
+    project_root: Path,
+) -> tuple[Path, dict[str, object], list[dict[str, object]]]:
+    scored: list[dict[str, object]] = []
+    for rank_in_input, path in enumerate(dedupe_paths(candidate_paths)):
+        path = path.resolve()
+        payload: dict[str, object] = {
+            "row_index": row_index,
+            "chimera_id": chimera_id,
+            "cosmos_id": cosmos_id,
+            "candidate_input_rank": rank_in_input,
+            "galaxy_spectrum_path": str(path),
+            "galaxy_spectrum_path_relative": maybe_relative(path, project_root),
+            "candidate_source_origin": candidate_origins.get(path, "indexed"),
+            "target_redshift_for_scoring": target_redshift,
+            "candidate_status": "ok",
+        }
+        try:
+            spec = load_zcosmos_spectrum(path, target_redshift)
+            payload.update(spectrum_snr_summary(spec))
+        except Exception as exc:
+            payload.update(
+                {
+                    "candidate_status": "failed",
+                    "candidate_failure": f"{type(exc).__name__}: {exc}",
+                    "galaxy_spectrum_snr_median": np.nan,
+                    "galaxy_spectrum_snr_p16": np.nan,
+                    "galaxy_spectrum_snr_p84": np.nan,
+                    "galaxy_spectrum_snr_n_pixels": 0,
+                }
+            )
+        scored.append(payload)
+
+    usable = [
+        item
+        for item in scored
+        if item["candidate_status"] == "ok"
+    ]
+    if not usable:
+        first_failure = scored[0].get("candidate_failure", "no readable galaxy candidates") if scored else "no galaxy candidates"
+        raise FileNotFoundError(f"no readable galaxy spectrum candidates for COSMOS ID {cosmos_id}: {first_failure}")
+
+    def sort_key(item: dict[str, object]) -> tuple[int, float, int]:
+        snr = finite_float(item.get("galaxy_spectrum_snr_median"))
+        has_snr = int(np.isfinite(snr))
+        return (has_snr, snr if np.isfinite(snr) else -np.inf, -int(item["candidate_input_rank"]))
+
+    selected = max(usable, key=sort_key)
+    selected_path = Path(str(selected["galaxy_spectrum_path"]))
+    selected = dict(selected)
+    selected["galaxy_spectrum_candidate_count"] = len(scored)
+    for item in scored:
+        item["selected_for_composite"] = str(Path(str(item["galaxy_spectrum_path"])).resolve() == selected_path.resolve())
+    return selected_path, selected, scored
 
 
 def load_sdss_dr7q_spectrum(path: Path, dr7q_redshift: float) -> dict[str, object]:
@@ -903,6 +1020,7 @@ def process_row(
     qso_overrides_by_chimera_id: dict[str, Path],
     qso_overrides_by_key: dict[tuple[int, int, int], Path],
     ebv_by_id: dict[int, float],
+    source_candidate_rows: list[dict[str, object]],
 ) -> dict[str, object]:
     chimera_id = row["chimera_id"]
     safe_id = safe_filename(chimera_id)
@@ -932,12 +1050,27 @@ def process_row(
             "wave_max": float(np.nanmax(wave[mask])) if np.any(mask) else np.nan,
             "galaxy_spectrum_path": table.meta.get("galaxy_spectrum_path", ""),
             "qso_spectrum_path": table.meta.get("qso_spectrum_path", ""),
+            "galaxy_spectrum_candidate_count": table.meta.get("galaxy_spectrum_candidate_count", ""),
+            "galaxy_spectrum_snr_median": table.meta.get("galaxy_spectrum_snr_median", ""),
+            "galaxy_spectrum_snr_p16": table.meta.get("galaxy_spectrum_snr_p16", ""),
+            "galaxy_spectrum_snr_p84": table.meta.get("galaxy_spectrum_snr_p84", ""),
+            "galaxy_spectrum_snr_n_pixels": table.meta.get("galaxy_spectrum_snr_n_pixels", ""),
         }
 
     cosmos_id = int(row["cosmos_id"])
     dr7q_key = (int(row["dr7q_plate"]), int(row["dr7q_mjd"]), int(row["dr7q_fiber"]))
     audited_paths = source_match_paths.get(chimera_id, {})
-    galaxy_paths = [audited_paths["galaxy"]] if "galaxy" in audited_paths else galaxy_index.get(cosmos_id, [])
+    galaxy_paths = []
+    candidate_origins: dict[Path, str] = {}
+    if "galaxy" in audited_paths:
+        audited_galaxy = audited_paths["galaxy"].resolve()
+        galaxy_paths.append(audited_galaxy)
+        candidate_origins[audited_galaxy] = "source_match_audit"
+    for indexed_path in galaxy_index.get(cosmos_id, []):
+        indexed_path = indexed_path.resolve()
+        galaxy_paths.append(indexed_path)
+        candidate_origins.setdefault(indexed_path, "zcosmos_or_header_index")
+    galaxy_paths = dedupe_paths(galaxy_paths)
     if not galaxy_paths:
         raise FileNotFoundError(f"missing galaxy spectrum for COSMOS ID {cosmos_id}")
     dr7q_spectrum_path = (
@@ -949,12 +1082,21 @@ def process_row(
     if dr7q_spectrum_path is None:
         raise FileNotFoundError(f"missing DR7Q spectrum for plate/mjd/fiber {dr7q_key}")
 
-    galaxy_spectrum_path = galaxy_paths[0]
     chimera_redshift = float(row["chimera_redshift"])
     target_redshift, target_redshift_source = best_galaxy_redshift(row, chimera_redshift)
     dr7q_redshift = float(row["dr7q_redshift"])
     qso_weight = float(row["chimera_qso_weight"])
     cosmos_ebv = ebv_by_id.get(cosmos_id, 0.0)
+    galaxy_spectrum_path, selected_galaxy_source, candidate_rows = score_galaxy_spectrum_candidates(
+        chimera_id=chimera_id,
+        cosmos_id=cosmos_id,
+        row_index=row_index,
+        candidate_paths=galaxy_paths,
+        candidate_origins=candidate_origins,
+        target_redshift=target_redshift,
+        project_root=project_root,
+    )
+    source_candidate_rows.extend(candidate_rows)
 
     galaxy_spec = load_zcosmos_spectrum(galaxy_spectrum_path, target_redshift)
     qso_spec = load_sdss_dr7q_spectrum(dr7q_spectrum_path, dr7q_redshift)
@@ -1031,8 +1173,17 @@ def process_row(
         "cosmos_ebv": cosmos_ebv,
         "galaxy_spectrum_path": maybe_relative(galaxy_spectrum_path, project_root),
         "qso_spectrum_path": maybe_relative(dr7q_spectrum_path, project_root),
+        "galaxy_spectrum_candidate_count": selected_galaxy_source.get("galaxy_spectrum_candidate_count", ""),
+        "galaxy_spectrum_snr_source": selected_galaxy_source.get("galaxy_spectrum_snr_source", ""),
+        "galaxy_spectrum_snr_median": selected_galaxy_source.get("galaxy_spectrum_snr_median", ""),
+        "galaxy_spectrum_snr_p16": selected_galaxy_source.get("galaxy_spectrum_snr_p16", ""),
+        "galaxy_spectrum_snr_p84": selected_galaxy_source.get("galaxy_spectrum_snr_p84", ""),
+        "galaxy_spectrum_snr_n_pixels": selected_galaxy_source.get("galaxy_spectrum_snr_n_pixels", ""),
         "galaxy_error_column": galaxy_spec.get("flux_density_err_column", ""),
         "qso_error_source": "ivar" if np.any(np.isfinite(qso_spec["flux_density_err_obs"])) else "",
+        "qso_redshift_shift_method": "rest-frame transform to target galaxy spectroscopic redshift",
+        "qso_wavelength_redshift_scale": (1.0 + target_redshift) / (1.0 + dr7q_redshift),
+        "qso_flux_density_redshift_scale": (1.0 + dr7q_redshift) / (1.0 + target_redshift),
         "extinction_curve": "CCM89 Rv=3.1" if apply_extinction else "none",
         "format": "grahspj publication workflow SpectroscopyData input",
         "flux_unit": "mJy",
@@ -1138,6 +1289,13 @@ def process_row(
         "wave_max": float(np.nanmax(common_wave[mask])),
         "galaxy_spectrum_path": str(galaxy_spectrum_path),
         "qso_spectrum_path": str(dr7q_spectrum_path),
+        "galaxy_spectrum_candidate_count": selected_galaxy_source.get("galaxy_spectrum_candidate_count", ""),
+        "galaxy_spectrum_snr_median": selected_galaxy_source.get("galaxy_spectrum_snr_median", ""),
+        "galaxy_spectrum_snr_p16": selected_galaxy_source.get("galaxy_spectrum_snr_p16", ""),
+        "galaxy_spectrum_snr_p84": selected_galaxy_source.get("galaxy_spectrum_snr_p84", ""),
+        "galaxy_spectrum_snr_n_pixels": selected_galaxy_source.get("galaxy_spectrum_snr_n_pixels", ""),
+        "qso_wavelength_redshift_scale": (1.0 + target_redshift) / (1.0 + dr7q_redshift),
+        "qso_flux_density_redshift_scale": (1.0 + dr7q_redshift) / (1.0 + target_redshift),
         "resolution_match_enabled": resolution_metadata["resolution_match_enabled"],
         "target_resolving_power": resolution_metadata["target_resolving_power"],
         "galaxy_resolution_convolved": resolution_metadata["galaxy_resolution_convolved"],
@@ -1252,6 +1410,7 @@ def main() -> int:
 
     successes: list[dict[str, object]] = []
     failures: list[dict[str, object]] = []
+    source_candidate_rows: list[dict[str, object]] = []
     for count, (row_index, row) in enumerate(indexed_rows, start=1):
         chimera_id = row.get("chimera_id", "")
         try:
@@ -1267,6 +1426,7 @@ def main() -> int:
                 qso_overrides_by_chimera_id,
                 qso_overrides_by_key,
                 ebv_by_id,
+                source_candidate_rows,
             )
             successes.append(payload)
             if args.verbose:
@@ -1290,11 +1450,15 @@ def main() -> int:
 
     manifest_path = output_dir / "chimera_spectra_manifest.csv"
     failures_path = output_dir / "chimera_spectra_failures.csv"
+    source_candidates_path = output_dir / "chimera_spectrum_source_candidates.csv"
     write_csv(manifest_path, successes)
     write_csv(failures_path, failures)
+    write_csv(source_candidates_path, source_candidate_rows)
 
     print(f"Done. successes={len(successes)} failures={len(failures)}")
     print(f"Wrote manifest: {manifest_path}")
+    if source_candidate_rows:
+        print(f"Wrote scored source candidates: {source_candidates_path}")
     if failures:
         print(f"Wrote failures: {failures_path}")
     print(f"Composite spectra are under: {output_dir / 'spectra'}")

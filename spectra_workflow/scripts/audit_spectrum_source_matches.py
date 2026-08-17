@@ -192,6 +192,9 @@ def rebuild_provenance_from_chimera(path: Path) -> list[dict[str, Any]]:
                     "dr7q_fiber": fiber,
                     "dr7q_spectrum_id": f"{plate}-{mjd}-{fiber}",
                     "chimera_redshift": float(scalar(row["redshift"])),
+                    "galaxy_spectroscopic_redshift": (
+                        float(scalar(row["redshift_GAL"])) if "redshift_GAL" in names else np.nan
+                    ),
                     "dr7q_redshift": float(scalar(row["z_QSO"])),
                     "chimera_qso_weight": float(scalar(row["chimera_QSO_weight"])),
                 }
@@ -636,6 +639,7 @@ def main() -> int:
                 "qso_catalog_rmjd": dr7q_catalog_entry.get("rmjd", ""),
                 "qso_catalog_fiber": dr7q_catalog_entry.get("fiber", ""),
                 "chimera_redshift": row.get("chimera_redshift", ""),
+                "galaxy_spectroscopic_redshift": row.get("galaxy_spectroscopic_redshift", ""),
                 "dr7q_redshift": row.get("dr7q_redshift", ""),
                 "chimera_qso_weight": row.get("chimera_qso_weight", ""),
                 "galaxy_ra_deg": row.get("galaxy_ra_deg", ""),

@@ -34,7 +34,11 @@ All generated workflow products are written under `spectra_workflow/outputs/` by
 ## Scripts
 
 - `scripts/build_all_chimera_composite_spectra.py`
-  Builds composite spectra from galaxy spectra + weighted DR7Q spectra.
+  Builds composite spectra from galaxy spectra + weighted DR7Q spectra. For
+  each Chimera row it now collects all locally available galaxy-spectrum
+  candidates, measures a robust S/N for each candidate, selects the highest-S/N
+  readable source, and records both the selected source and the full scored
+  candidate list.
 
 - `scripts/audit_chimera_composite_spectra.py`
   Compares generated spectra against the Chimera benchmark photometry and writes per-band/object diagnostics.
@@ -59,6 +63,19 @@ All generated workflow products are written under `spectra_workflow/outputs/` by
 
 - `scripts/search_sdss_replacement_spectra.py`
   Searches SDSS by QSO sky coordinate for replacement spectra and writes a QSO override table for the builder.
+
+- `scripts/search_sdss_desi_galaxy_spectra.py`
+  Searches SDSS and DESI/SPARCL by COSMOS host sky coordinate for possible
+  replacement galaxy spectra across the full Chimera provenance table.
+
+- `scripts/plot_sdss_desi_spectroscopic_completeness.py`
+  Plots the SDSS+DESI spectroscopic completeness of the Chimera COSMOS hosts
+  after the SDSS/DESI search script has finished.
+
+- `scripts/search_cosmos_spectroscopic_catalogs.py`
+  Searches external spectroscopic-redshift catalogs such as VizieR/NED for
+  Chimera COSMOS hosts. This is a catalog-completeness discovery step, not a
+  spectrum downloader.
 
 - `scripts/plot_safe_spectra_pdf.py`
   Selects 100 accepted safe spectra and writes a one-object-per-page PDF showing
@@ -99,7 +116,33 @@ This writes:
 
 Use `--dry-run` first if you want to print the exact commands without executing them. Use `--limit 100` for a quick smoke test.
 
-By default the builder shifts the QSO to the exact best galaxy spectroscopic redshift, keeps the native zCOSMOS observed-frame wavelength grid, degrades the higher-resolution spectrum to the lower assumed resolving power, and then uses flux-conserving pixel-overlap resampling before combining. The current defaults are `--galaxy-resolving-power 600`, `--qso-resolving-power 2000`, and `--resampling-method flux-conserving`, so the SDSS/DR7Q QSO spectrum is usually smoothed to the zCOSMOS-like resolution and rebinned by integrated pixel overlap. Use `--no-resolution-match` or `--resampling-method interp` only for diagnostics.
+The composite builder performs these steps for each Chimera object:
+
+1. Collect candidate galaxy spectra from the source-match audit, the explicit
+   zCOSMOS match table, and the FITS/header fallback index.
+2. Read every candidate that exists locally and compute a robust source S/N.
+   If a usable error column exists, S/N is based on `abs(flux) / error`; if no
+   usable errors are present, a conservative MAD-based flux-noise estimate is
+   used only as a fallback.
+3. Select the readable candidate with the highest finite median S/N. The full
+   scored table is written to
+   `all_chimera_spectra/chimera_spectrum_source_candidates.csv`; the selected
+   source and its S/N are also stored in the spectrum ECSV metadata and
+   `chimera_spectra_manifest.csv`.
+4. Shift the QSO spectrum to the exact best galaxy spectroscopic redshift
+   available for that Chimera row. The code transforms through rest frame:
+   `lambda_target = lambda_qso / (1 + z_qso) * (1 + z_gal)` and
+   `f_lambda,target = f_lambda,qso * (1 + z_qso) / (1 + z_gal)`. The selected
+   target redshift, redshift source column, wavelength scale factor, and
+   flux-density scale factor are written into the output metadata.
+5. Preserve the native galaxy observed-frame wavelength grid, clipped to QSO
+   overlap. Before combining, the higher-resolution component is degraded to the
+   lower assumed resolving power, then both components are rebinned with
+   flux-conserving pixel-edge overlaps. The current defaults are
+   `--galaxy-resolving-power 600`, `--qso-resolving-power 2000`, and
+   `--resampling-method flux-conserving`, so the SDSS/DR7Q QSO spectrum is
+   usually smoothed to the zCOSMOS-like resolution. Use
+   `--no-resolution-match` or `--resampling-method interp` only for diagnostics.
 
 ### Plot 100 safe spectra
 
@@ -196,6 +239,78 @@ python spectra_workflow/scripts/run_full_spectra_workflow.py \
   --qso-spectrum-overrides spectra_workflow/outputs/sdss_replacement_spectra/qso_spectrum_overrides.csv \
   --overwrite
 ```
+
+### Search SDSS/DESI for COSMOS host-galaxy spectra
+
+To look for galaxy spectra beyond the zCOSMOS-only set, query SDSS and DESI by
+the COSMOS host coordinates for every unique COSMOS ID in `chimera_provenance.csv`:
+
+```bash
+python -m pip install astroquery sparclclient
+python spectra_workflow/scripts/search_sdss_desi_galaxy_spectra.py \
+  --project-root /home/nicho/GRAHSP_my/My-AGN-research-repository \
+  --chimera-fits /home/nicho/GRAHSP_my/grahspj_latest/data/chimeras-2023-10-11/chimeras-fullinfo.fits \
+  --radius-arcsec 1.0 \
+  --redshift-tolerance 0.02 \
+  --output-dir spectra_workflow/outputs/sdss_desi_galaxy_spectra \
+  --overwrite
+```
+
+This writes:
+
+- `galaxy_spectrum_candidates.csv`
+- `best_galaxy_spectrum_matches.csv`
+- `galaxy_spectrum_query_failures.csv`
+- `summary.json`
+
+After the search finishes, plot the spectroscopic completeness:
+
+```bash
+python spectra_workflow/scripts/plot_sdss_desi_spectroscopic_completeness.py \
+  --survey-label "zCOSMOS + SDSS + DESI DR2 + external catalogs"
+```
+
+By default this counts only candidates whose spectroscopic redshift agrees with
+the Chimera host redshift. Add `--include-redshift-inconsistent` if you want a
+looser coordinate-match-only diagnostic. If
+`spectra_workflow/outputs/external_spectroscopic_catalogs/external_spectroscopic_catalog_candidates.csv`
+exists, the same figure also shows the full catalog-level completeness from all
+queried spectroscopic catalogs.
+
+The script deliberately searches the full Chimera provenance table, not only
+objects with existing zCOSMOS spectra. It first joins each COSMOS ID to the
+active `chimeras-fullinfo.fits` table to get `ALPHA_J2000_GAL`,
+`DELTA_J2000_GAL`, and the host redshift, then filters candidates by true
+angular separation and flags whether the candidate redshift is consistent with
+the Chimera host redshift.
+
+### Search external COSMOS spectroscopic-redshift catalogs
+
+To search catalog-level spectroscopic matches beyond local zCOSMOS and the
+SDSS/DESI spectrum services:
+
+```bash
+python spectra_workflow/scripts/search_cosmos_spectroscopic_catalogs.py \
+  --services vizier \
+  --radius-arcsec 1.0 \
+  --redshift-tolerance 0.02 \
+  --overwrite
+```
+
+This writes:
+
+- `external_spectroscopic_catalog_candidates.csv`
+- `best_external_spectroscopic_catalog_matches.csv`
+- `external_spectroscopic_catalog_failures.csv`
+- `summary.json`
+
+By default the script searches a small editable VizieR list including zCOSMOS,
+COSMOS/Ilbert spectroscopic-redshift metadata, and C3R2/KMOS. You can replace
+or extend the list with repeated `--vizier-catalog LABEL=CATALOG_ID` arguments.
+Use `--services vizier ned` to also query NED by coordinate. Treat these results
+as catalog-completeness candidates: they tell you where a spectroscopic redshift
+exists, but not necessarily where a flux-calibrated 1D spectrum is downloadable
+and usable for composite construction.
 
 ### Radius tests
 
