@@ -1,0 +1,22 @@
+{
+  "chimera_fits": "/home/nicho/GRAHSP_my/grahspj_latest/data/chimeras-2023-10-11/chimeras-fullinfo.fits",
+  "n_best_matches": 409,
+  "n_candidates": 773,
+  "n_hosts_with_any_candidate": 409,
+  "n_hosts_with_redshift_consistent_candidate": 362,
+  "n_provenance_rows": 19550,
+  "n_unique_hosts_missing_coordinates": 0,
+  "n_unique_hosts_queried": 2218,
+  "provenance": "/home/nicho/GRAHSP_my/My-AGN-research-repository/chimera_provenance.csv",
+  "radius_arcsec": 1.0,
+  "redshift_tolerance": 0.02,
+  "service_counts": {
+    "desi_candidates": 772,
+    "hosts_without_any_candidate": 1809,
+    "sdss_candidates": 1
+  },
+  "services": [
+    "sdss",
+    "desi"
+  ]
+}

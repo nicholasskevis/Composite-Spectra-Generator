@@ -1,0 +1,24 @@
+{
+  "n_best_matches": 1947,
+  "n_candidates": 2957,
+  "n_hosts_with_any_candidate": 1947,
+  "n_hosts_with_redshift_consistent_candidate": 1008,
+  "n_unique_hosts_queried": 2218,
+  "note": "Catalog matches do not guarantee downloadable flux-calibrated spectra.",
+  "provenance": "/home/nicho/GRAHSP_my/My-AGN-research-repository/chimera_provenance.csv",
+  "radius_arcsec": 1.0,
+  "redshift_tolerance": 0.02,
+  "service_counts": {
+    "vizier_C3R2_KMOS_Euclid2020_candidates": 0,
+    "vizier_COSMOS_Ilbert2013_zspec_candidates": 1947,
+    "vizier_zCOSMOS_Lilly2007_candidates": 1010
+  },
+  "services": [
+    "vizier"
+  ],
+  "vizier_catalogs": {
+    "C3R2_KMOS_Euclid2020": "J/A+A/642/A192",
+    "COSMOS_Ilbert2013_zspec": "J/ApJS/206/8",
+    "zCOSMOS_Lilly2007": "J/ApJS/172/70/zcosmos3"
+  }
+}
